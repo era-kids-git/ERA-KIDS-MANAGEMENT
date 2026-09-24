@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+/* Full width on mobile & prevent unwanted horizontal scroll left-right */
+html, body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  position: relative;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overscroll-behavior-x: none;
+}
+
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+/* 
+  KUNCI RASIO LAYAR HP & CEGAH AUTO ZOOM-IN SAAT INPUT / MENGETIK:
+  Pada perangkat mobile / layar HP (<= 768px):
+  1. Semua input, select, dan textarea dipatok font-size 16px minimal agar iOS Safari dan Android Chrome
+     TIDAK PERNAH memicu fitur auto-zoom in saat kolom form disentuh/difokuskan.
+  2. Layar tetap terkunci 100% full screen dan tidak tergeser ke kanan/kiri.
+*/
+@media screen and (max-width: 768px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Hide scrollbar for clean touch experiences while retaining scroll */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* When printing the training report, show only the document cleanly */
+  body:has(#printable-training-report) #root > *:not(#printable-modal-overlay) {
+    display: none !important;
+  }
+
+  #printable-training-report {
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    position: static !important;
+  }
+
+  .print-page-break-inside-avoid {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+}

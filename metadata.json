@@ -1,0 +1,6 @@
+{
+  "name": "ERA Kids Management & Registrasi Siswa",
+  "description": "Sistem manajemen kelas Volleyball Training for Kids ERA Kids dengan pendaftaran mandiri, input presensi sesi latihan pelatih, alokasi no jersey tanpa 0, dan notifikasi WhatsApp.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
