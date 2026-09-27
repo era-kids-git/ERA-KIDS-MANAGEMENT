@@ -1274,6 +1274,8 @@ app.post('/api/reset-demo', (_req, res) => {
 // ----------------------------------------------------
 // VITE MIDDLEWARE / STATIC ASSETS
 // ----------------------------------------------------
+app.use(express.static(path.join(process.cwd(), 'public')));
+
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

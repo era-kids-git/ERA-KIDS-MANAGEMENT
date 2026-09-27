@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { StudentRegistration } from '../../types';
 import { formatIndonesianDate, formatIndonesianDateTime } from '../../utils/dateUtils';
+import { EraKidsLogo } from '../common/EraKidsLogo';
 
 interface RegistrationProofDocumentProps {
   registration: StudentRegistration;
@@ -56,11 +57,9 @@ export const RegistrationProofDocument: React.FC<RegistrationProofDocumentProps>
       }`}
       style={{ backgroundColor: '#ffffff' }}
     >
-      {/* 1. HEADER ERA KIDS - CLEAN & SIMPLE */}
-      <div className="border-b border-slate-200 pb-3 mb-4 flex items-center gap-2.5">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 flex items-center justify-center text-white text-lg font-black shadow-2xs shrink-0">
-          🏐
-        </div>
+      {/* 1. HEADER ERA KIDS - CLEAN & SIMPLE WITH OFFICIAL LOGO */}
+      <div className="border-b border-slate-200 pb-3 mb-4 flex items-center gap-3">
+        <EraKidsLogo className="w-12 h-12" />
         <span className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 font-mono">
           ERA Kids
         </span>
@@ -96,10 +95,10 @@ export const RegistrationProofDocument: React.FC<RegistrationProofDocumentProps>
       </div>
 
       {/* 3. DATA UTAMA SISWA & PAS FOTO */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
+      <div className="flex flex-row gap-4 mb-4 items-start">
         {/* Pas Foto 3x4 Calon Siswa */}
-        <div className="sm:col-span-1 flex flex-col items-center text-center">
-          <div className="relative w-28 sm:w-32 h-36 sm:h-40 rounded-lg border-2 border-indigo-200 p-1 bg-slate-100 shadow-2xs overflow-hidden flex items-center justify-center">
+        <div className="w-28 sm:w-32 shrink-0 flex flex-col items-center">
+          <div className="relative w-28 sm:w-32 h-36 sm:h-40 rounded-lg border-2 border-indigo-200 p-1 bg-slate-100 shadow-2xs overflow-hidden flex items-center justify-center shrink-0">
             {registration.photoUrl ? (
               <img
                 src={registration.photoUrl}
@@ -119,29 +118,26 @@ export const RegistrationProofDocument: React.FC<RegistrationProofDocumentProps>
               </div>
             )}
           </div>
-          <span className="text-[10px] font-bold text-slate-500 uppercase mt-1">
-            Foto Resmi Siswa
-          </span>
         </div>
 
         {/* Tabel Data Diri Calon Siswa */}
-        <div className="sm:col-span-3">
+        <div className="flex-1 min-w-0">
           <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide border-b border-slate-200 pb-1 mb-2 flex items-center gap-1.5">
-            <User className="w-3.5 h-3.5 text-indigo-600" />
+            <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
             <span>Data Calon Siswa</span>
           </h3>
 
           <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
             <div>
               <span className="text-[10px] text-slate-500 block">Nama Lengkap:</span>
-              <span className="font-bold text-slate-900 text-xs sm:text-sm">
+              <span className="font-bold text-slate-900 text-xs sm:text-sm break-words">
                 {registration.studentName}
               </span>
             </div>
 
             <div>
               <span className="text-[10px] text-slate-500 block">Nama Panggilan:</span>
-              <span className="font-semibold text-slate-800">
+              <span className="font-semibold text-slate-800 break-words">
                 {registration.nickname || '-'}
               </span>
             </div>
@@ -162,7 +158,7 @@ export const RegistrationProofDocument: React.FC<RegistrationProofDocumentProps>
 
             <div>
               <span className="text-[10px] text-slate-500 block">Tempat, Tanggal Lahir (Usia):</span>
-              <span className="font-medium text-slate-800">
+              <span className="font-medium text-slate-800 break-words">
                 {ttlText}
               </span>
             </div>
@@ -174,9 +170,9 @@ export const RegistrationProofDocument: React.FC<RegistrationProofDocumentProps>
               </span>
             </div>
 
-            <div className="col-span-2">
+            <div className="col-span-1 sm:col-span-2">
               <span className="text-[10px] text-slate-500 block">Asal Sekolah:</span>
-              <span className="font-medium text-slate-800">
+              <span className="font-medium text-slate-800 break-words">
                 {registration.currentSchool || '-'}
               </span>
             </div>
@@ -230,7 +226,7 @@ export const RegistrationProofDocument: React.FC<RegistrationProofDocumentProps>
           <div className="space-y-1 text-[11px] text-indigo-950">
             <div>
               <span className="text-indigo-700 font-medium">Program:</span>{' '}
-              <strong className="text-indigo-900">Volleyball Training for Kids</strong>
+              <strong className="text-indigo-900">ERA Kids</strong>
             </div>
             <div>
               <span className="text-indigo-700 font-medium">Hari & Jam:</span>{' '}

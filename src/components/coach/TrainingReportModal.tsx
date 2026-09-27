@@ -24,6 +24,7 @@ import {
   Share2
 } from 'lucide-react';
 import { TrainingSession } from '../../types.ts';
+import { EraKidsLogo } from '../common/EraKidsLogo.tsx';
 
 interface TrainingReportModalProps {
   session: TrainingSession | null;
@@ -649,26 +650,27 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
             {/* 1. OFFICIAL KOP / HEADER */}
             <div className="border-b-2 border-slate-900 pb-3.5 mb-4">
               <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-amber-500 via-orange-500 to-rose-500 flex items-center justify-center text-white text-2xl font-black shadow-xs shrink-0 print:border print:border-slate-800">
-                    🏐
-                  </div>
+                <div className="flex items-center gap-3">
+                  <EraKidsLogo className="w-14 h-14 shrink-0" />
                   <div>
-                    <div className="font-black text-lg sm:text-xl tracking-tight text-slate-950 leading-none flex items-center gap-1.5">
-                      ERA KIDS
+                    <div className="font-black text-xl sm:text-2xl tracking-tight text-slate-950 leading-none flex items-center gap-2">
+                      <span>ERA KIDS</span>
                     </div>
-                    <div className="text-[10.5px] text-slate-600 font-medium mt-1">
-                      Program Pembinaan Bola Voli Usia Dini • Volleyball Training for Kids
+                    <div className="text-[11px] font-bold text-blue-900 uppercase tracking-wide mt-1">
+                      Akademi Pembinaan Bola Voli Usia Dini
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-medium">
+                      Official Training Session Report & Student Attendance
                     </div>
                   </div>
                 </div>
 
                 <div className="text-right shrink-0">
-                  <span className="inline-block px-2.5 py-0.5 bg-slate-900 text-white text-[10.5px] font-black rounded-md tracking-wider uppercase">
+                  <span className="inline-block px-3 py-1 bg-slate-900 text-white text-[11px] font-black rounded-md tracking-wider uppercase shadow-xs">
                     LAPORAN SESI LATIHAN
                   </span>
-                  <p className="text-[9.5px] text-slate-500 font-mono mt-0.5">
-                    ID: {session.id}
+                  <p className="text-[9.5px] text-slate-500 font-mono mt-1">
+                    KODE: <span className="font-bold text-slate-800">{session.id}</span>
                   </p>
                 </div>
               </div>

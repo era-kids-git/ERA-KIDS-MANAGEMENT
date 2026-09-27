@@ -36,6 +36,7 @@ import {
   downloadRegistrationProofImage 
 } from '../../utils/registrationDocExport.ts';
 import { formatBirthDate } from '../../utils/dateUtils.ts';
+import { EraKidsLogo } from '../common/EraKidsLogo.tsx';
 
 export const ParentPortal: React.FC = () => {
   const { submitRegistration, registrations, isConnected, isCloudConnected, trainingSessions } = useRealtime();
@@ -518,15 +519,13 @@ export const ParentPortal: React.FC = () => {
     <div className="w-full max-w-4xl mx-auto px-1 sm:px-4 py-1.5 sm:py-3 overflow-x-hidden">
       {/* Portal Top Header - 3 Baris Simple & Clean */}
       <div className="bg-white rounded-xl p-2.5 sm:p-3.5 shadow-2xs border border-slate-200 mb-2.5 sm:mb-3">
-        <div className="flex items-start sm:items-center gap-2 sm:gap-3">
-          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 flex items-center justify-center text-white shadow-2xs text-base shrink-0 mt-0.5 sm:mt-0">
-            🏐
-          </div>
+        <div className="flex items-start sm:items-center gap-2.5 sm:gap-3">
+          <EraKidsLogo className="w-9 h-9 sm:w-10 sm:h-10 mt-0.5 sm:mt-0" />
           <div className="min-w-0 flex-1 leading-tight">
             {/* Baris 1: Judul Kelas & Badge */}
             <div className="flex items-center gap-1.5 flex-wrap">
               <h1 className="text-xs sm:text-sm font-bold tracking-tight text-slate-900">
-                Volleyball Training for Kids
+                ERA Kids
               </h1>
               <span className="px-1.5 py-0.5 rounded text-[9.5px] sm:text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">
                 Kelas Aktif 2026/2027
@@ -749,7 +748,7 @@ export const ParentPortal: React.FC = () => {
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
                         <div>
                           <h3 className="text-xs sm:text-sm font-bold text-slate-900">Langkah 1: Data Calon Siswa</h3>
-                          <p className="text-[11px] text-slate-500">Lengkapi data diri calon atlet muda Volleyball Training for Kids.</p>
+                          <p className="text-[11px] text-slate-500">Lengkapi data diri calon atlet muda ERA Kids.</p>
                         </div>
                         <span className="text-[10px] text-rose-600 font-semibold bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full w-fit">
                           * Seluruh isian wajib diisi

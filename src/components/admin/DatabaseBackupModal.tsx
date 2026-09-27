@@ -28,6 +28,7 @@ import {
   UserCheck
 } from 'lucide-react';
 import { StudentRegistration } from '../../types.ts';
+import { EraKidsLogo } from '../common/EraKidsLogo.tsx';
 import { useRealtime } from '../../context/RealtimeContext.tsx';
 import { exportStudentsToExcel } from '../../utils/excelExport.ts';
 import { formatBirthDate } from '../../utils/dateUtils.ts';
@@ -767,7 +768,7 @@ export const DatabaseBackupModal: React.FC<DatabaseBackupModalProps> = ({
             <div className="space-y-3.5">
               <div className="p-3.5 rounded-xl bg-slate-900 text-white space-y-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-lg">🏐</span>
+                  <EraKidsLogo className="w-6 h-6 shrink-0" />
                   <h4 className="font-bold text-sm">Cara Menghubungkan ke App Daftar Kehadiran Siswa</h4>
                 </div>
                 <p className="text-slate-300 text-[11px] leading-relaxed">

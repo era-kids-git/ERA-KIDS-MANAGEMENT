@@ -28,6 +28,7 @@ import { StudentRegistration, RegistrationStatus } from '../../types.ts';
 import { useRealtime } from '../../context/RealtimeContext.tsx';
 import { formatIndonesianDate } from '../../utils/whatsapp.ts';
 import { formatBirthDate } from '../../utils/dateUtils.ts';
+import { EraKidsLogo } from '../common/EraKidsLogo.tsx';
 import { StudentCardModal } from '../common/StudentCardModal.tsx';
 
 interface StudentDetailModalProps {
@@ -461,7 +462,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
               {/* Kelas & Jadwal */}
               <div className="p-3.5 rounded-xl border border-indigo-200 bg-indigo-50/50 space-y-2">
                 <h4 className="font-bold text-xs text-indigo-950 flex items-center gap-1.5">
-                  <span>🏐</span>
+                  <EraKidsLogo className="w-4 h-4 shrink-0" />
                   Kelas & Jadwal Latihan Resmi
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">

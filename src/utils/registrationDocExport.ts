@@ -12,6 +12,25 @@ export async function generateRegistrationProofHtml(
   registration: StudentRegistration,
   qrCodeUrl?: string
 ): Promise<string> {
+  let logoSrc = 'logo.png';
+  try {
+    const res = await fetch('/logo.png');
+    if (res.ok) {
+      const blob = await res.blob();
+      const reader = new FileReader();
+      const dataUrl = await new Promise<string>((resolve) => {
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => resolve('logo.png');
+        reader.readAsDataURL(blob);
+      });
+      if (dataUrl && dataUrl.startsWith('data:')) {
+        logoSrc = dataUrl;
+      }
+    }
+  } catch {
+    logoSrc = 'logo.png';
+  }
+
   let qrCodeData = qrCodeUrl;
   if (!qrCodeData) {
     try {
@@ -137,16 +156,10 @@ export async function generateRegistrationProofHtml(
       gap: 12px;
     }
     .kop-logo {
-      width: 48px;
-      height: 48px;
-      border-radius: 12px;
-      background: linear-gradient(135deg, #f59e0b, #ec4899, #4f46e5);
-      color: #ffffff;
-      font-size: 24px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      width: 52px;
+      height: 52px;
+      object-fit: contain;
+      display: block;
       flex-shrink: 0;
     }
     .kop-name {
@@ -523,7 +536,7 @@ export async function generateRegistrationProofHtml(
     <!-- 1. KOP SURAT RESMI - CLEAN SIMPLE -->
     <div class="kop-header">
       <div class="kop-brand">
-        <div class="kop-logo">🏐</div>
+        <img src="${logoSrc}" alt="Logo" class="kop-logo" onerror="if(!this.getAttribute('data-err')){this.setAttribute('data-err','1');this.src='logo.png';}" />
         <div class="kop-name">ERA Kids</div>
       </div>
     </div>
@@ -552,7 +565,6 @@ export async function generateRegistrationProofHtml(
           }
           ${registration.jerseyNumber ? `<div class="photo-jersey">#${registration.jerseyNumber}</div>` : ''}
         </div>
-        <div class="photo-caption">Pas Foto Resmi</div>
       </div>
 
       <div>
@@ -634,7 +646,7 @@ export async function generateRegistrationProofHtml(
         <div class="col-list">
           <div>
             <span class="col-item-label">Program:</span>{' '}
-            <strong style="color: #312e81;">Volleyball Training for Kids</strong>
+            <strong style="color: #312e81;">ERA Kids</strong>
           </div>
           <div>
             <span class="col-item-label">Hari & Jam:</span>{' '}
@@ -706,30 +718,72 @@ export async function downloadRegistrationProofHtml(
 
 /**
  * Downloads the official registration proof as a single, seamless, high-resolution PNG image.
- * This guarantees the document is 1 whole continuous sheet with ZERO pagination cut-offs.
+ * This guarantees the document is 1 whole continuous sheet with ZERO pagination cut-offs,
+ * and maintains full-width crisp desktop proportions (preventing mobile squish or overlap).
  */
 export async function downloadRegistrationProofImage(
   element: HTMLElement,
   registration: StudentRegistration
 ): Promise<string> {
-  const prevTransform = element.style.transform;
-  const prevTransformOrigin = element.style.transformOrigin;
-  element.style.transform = 'none';
-  element.style.transformOrigin = 'initial';
+  // Create an off-screen clone container at a fixed desktop width of 680px
+  // This guarantees consistent, spacious typography and non-overlapping elements on every device (mobile or desktop).
+  const clone = element.cloneNode(true) as HTMLElement;
+  clone.style.width = '680px';
+  clone.style.maxWidth = '680px';
+  clone.style.minWidth = '680px';
+  clone.style.position = 'fixed';
+  clone.style.left = '-9999px';
+  clone.style.top = '0';
+  clone.style.zIndex = '-9999';
+  clone.style.backgroundColor = '#ffffff';
+  clone.style.boxSizing = 'border-box';
+  clone.style.padding = '24px';
+  clone.style.margin = '0';
+  clone.style.transform = 'none';
+
+  // Make sure child responsive containers expand to desktop proportions in the clone
+  const allFlexAndGrids = clone.querySelectorAll<HTMLElement>('*');
+  allFlexAndGrids.forEach(node => {
+    // If element had mobile wrapping, allow proper space
+    if (node.classList.contains('sm:flex-row') || node.classList.contains('flex-col')) {
+      node.style.display = 'flex';
+      node.style.flexDirection = 'row';
+    }
+  });
+
+  // Re-ensure student photo block in clone maintains rigid fixed dimensions
+  const photoContainer = clone.querySelector<HTMLElement>('.relative.w-28, .relative.w-32');
+  if (photoContainer) {
+    photoContainer.style.width = '120px';
+    photoContainer.style.height = '150px';
+    photoContainer.style.minWidth = '120px';
+    photoContainer.style.flexShrink = '0';
+  }
+
+  // Remove any remaining caption if present in clone
+  clone.querySelectorAll('.photo-caption, [class*="Foto Resmi Siswa"]').forEach(el => el.remove());
+  Array.from(clone.querySelectorAll('span, div')).forEach(el => {
+    if (el.textContent?.trim().toLowerCase() === 'foto resmi siswa') {
+      el.remove();
+    }
+  });
+
+  document.body.appendChild(clone);
 
   try {
-    const canvas = await html2canvas(element, {
+    // Wait briefly for images and layout to settle
+    await new Promise(r => setTimeout(r, 120));
+
+    const canvas = await html2canvas(clone, {
       scale: 2,
       useCORS: true,
       allowTaint: true,
       logging: false,
       backgroundColor: '#ffffff',
       scrollX: 0,
-      scrollY: 0
+      scrollY: 0,
+      windowWidth: 1024
     });
-
-    element.style.transform = prevTransform;
-    element.style.transformOrigin = prevTransformOrigin;
 
     const imgData = canvas.toDataURL('image/png');
     const safeReg = (registration.regNumber || 'REG').replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -744,9 +798,9 @@ export async function downloadRegistrationProofImage(
     document.body.removeChild(link);
 
     return filename;
-  } catch (err) {
-    element.style.transform = prevTransform;
-    element.style.transformOrigin = prevTransformOrigin;
-    throw err;
+  } finally {
+    if (document.body.contains(clone)) {
+      document.body.removeChild(clone);
+    }
   }
 }

@@ -38,6 +38,7 @@ import { useRealtime } from '../../context/RealtimeContext.tsx';
 import { AttendanceStatus, StudentAttendanceRecord, TrainingSession, StudentRegistration, MediaDocumentation } from '../../types.ts';
 import { getMediaRemainingDays, isMediaExpired, MEDIA_RETENTION_DAYS } from '../../utils/mediaRetention.ts';
 import { TrainingReportModal } from './TrainingReportModal.tsx';
+import { EraKidsLogo } from '../common/EraKidsLogo.tsx';
 
 interface CoachAttendancePortalProps {
   isEmbedded?: boolean;
@@ -661,9 +662,7 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           {/* Title & Badge */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 via-orange-500 to-rose-500 text-white flex items-center justify-center font-black text-lg shadow-sm shrink-0">
-              🏐
-            </div>
+            <EraKidsLogo className="w-10 h-10 sm:w-11 sm:h-11" />
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">

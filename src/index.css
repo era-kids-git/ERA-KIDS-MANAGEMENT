@@ -23,15 +23,26 @@ html, body {
 /* 
   KUNCI RASIO LAYAR HP & CEGAH AUTO ZOOM-IN SAAT INPUT / MENGETIK:
   Pada perangkat mobile / layar HP (<= 768px):
-  1. Semua input, select, dan textarea dipatok font-size 16px minimal agar iOS Safari dan Android Chrome
-     TIDAK PERNAH memicu fitur auto-zoom in saat kolom form disentuh/difokuskan.
-  2. Layar tetap terkunci 100% full screen dan tidak tergeser ke kanan/kiri.
+  1. Input form pendaftaran / formulir publik dipatok font-size 16px minimal agar iOS Safari dan Android Chrome
+     TIDAK memicu fitur auto-zoom in saat kolom form disentuh/difokuskan.
+  2. Portal Admin tetap menggunakan font proporsional standar yang ringkas dan rapi.
 */
 @media screen and (max-width: 768px) {
-  input,
-  select,
-  textarea {
-    font-size: 16px !important;
+  .form-input-mobile,
+  form input:not(.admin-control),
+  form select:not(.admin-control),
+  form textarea:not(.admin-control) {
+    font-size: 16px;
+  }
+
+  /* Admin portal controls explicitly use compact standard fonts */
+  .admin-portal-scope select,
+  .admin-portal-scope input,
+  .admin-portal-scope button {
+    font-size: 12px !important;
+  }
+  .admin-portal-scope select.admin-status-select {
+    font-size: 11px !important;
   }
 }
 
@@ -65,11 +76,24 @@ html, body {
     display: none !important;
   }
 
+  /* When printing student card */
+  body:has(#printable-student-card) #root > *:not(#printable-modal-overlay) {
+    display: none !important;
+  }
+
   #printable-training-report {
     transform: none !important;
     width: 100% !important;
     max-width: 100% !important;
     position: static !important;
+  }
+
+  #printable-student-card {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    gap: 16px !important;
+    justify-content: center !important;
   }
 
   .print-page-break-inside-avoid {

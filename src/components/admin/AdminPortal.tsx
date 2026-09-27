@@ -23,21 +23,20 @@ import {
   X,
   FileSpreadsheet,
   Loader2,
-  RotateCcw,
-  FileCode
+  RotateCcw
 } from 'lucide-react';
 import { useRealtime } from '../../context/RealtimeContext.tsx';
 import { StudentRegistration, RegistrationStatus } from '../../types.ts';
 import { formatIndonesianDate, generateWhatsAppMessage } from '../../utils/whatsapp.ts';
 import { formatBirthDate } from '../../utils/dateUtils.ts';
 import { exportStudentsToExcel } from '../../utils/excelExport.ts';
-import { downloadStudentsDataHtmlFile } from '../../utils/studentHtmlExport.ts';
 import { WhatsAppModal } from './WhatsAppModal.tsx';
 import { StudentDetailModal } from './StudentDetailModal.tsx';
 import { ShareParentLinkModal } from './ShareParentLinkModal.tsx';
 import { StudentCardModal } from '../common/StudentCardModal.tsx';
 import { DatabaseBackupModal } from './DatabaseBackupModal.tsx';
 import { CoachAttendancePortal } from '../coach/CoachAttendancePortal.tsx';
+import { EraKidsLogo } from '../common/EraKidsLogo.tsx';
 
 const STATUS_COLUMNS: { status: RegistrationStatus; title: string; color: string; badgeBg: string; textCol: string }[] = [
   { status: 'Register', title: 'Register', color: 'bg-blue-500', badgeBg: 'bg-blue-50 text-blue-700 border-blue-200', textCol: 'text-blue-700' },
@@ -231,16 +230,8 @@ export const AdminPortal: React.FC = () => {
     };
   }, [registrations]);
 
-  const handleDownloadFilteredHtml = () => {
-    downloadStudentsDataHtmlFile(registrations, {
-      initialStatus: selectedStatus,
-      initialGender: selectedGender,
-      filteredOnly: false,
-    });
-  };
-
   return (
-    <div className="space-y-3 sm:space-y-4 w-full max-w-full overflow-x-hidden">
+    <div className="admin-portal-scope space-y-3 sm:space-y-4 w-full max-w-full overflow-x-hidden">
       {/* Real-time Toast Alert */}
       <AnimatePresence>
         {latestAlert && (
@@ -282,9 +273,7 @@ export const AdminPortal: React.FC = () => {
           {/* Logo & Title & Mobile Quick Icons */}
           <div className="flex items-center justify-between gap-2 min-w-0">
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-slate-900 text-white flex items-center justify-center font-bold text-sm shadow-xs border border-slate-700 shrink-0">
-                🏐
-              </div>
+              <EraKidsLogo className="w-8 h-8 sm:w-9 sm:h-9" />
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <h1 className="text-sm sm:text-base font-bold text-slate-900 truncate">
@@ -501,7 +490,7 @@ export const AdminPortal: React.FC = () => {
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               placeholder="Cari siswa, no. reg, jersey..."
-              className="w-full pl-7 pr-7 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="admin-control w-full pl-7 pr-7 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
             {searchQuery && (
               <button
@@ -540,70 +529,62 @@ export const AdminPortal: React.FC = () => {
           </div>
         </div>
 
-        {/* Dropdown Filters Bar: Status Pendaftaran & Jenis Kelamin */}
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 pt-2 border-t border-slate-100 items-end">
-          {/* Dropdown 1: Status Pendaftaran */}
-          <div className="sm:col-span-5 min-w-0">
-            <label htmlFor="filter-admin-status" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-              Status Pendaftaran
-            </label>
-            <select
-              id="filter-admin-status"
-              value={selectedStatus}
-              onChange={e => setSelectedStatus(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-            >
-              <option value="ALL">Semua Status ({counts.all} Siswa)</option>
-              <option value="Register">Menunggu Verifikasi ({counts.register} Siswa)</option>
-              <option value="Diterima">Diterima ({counts.diterima} Siswa)</option>
-              <option value="Pembatalan Keanggotaan">Dibatalkan ({counts.pembatalan} Siswa)</option>
-            </select>
-          </div>
-
-          {/* Dropdown 2: Jenis Kelamin */}
-          <div className="sm:col-span-4 min-w-0">
-            <label htmlFor="filter-admin-gender" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-              Jenis Kelamin
-            </label>
-            <select
-              id="filter-admin-gender"
-              value={selectedGender}
-              onChange={e => setSelectedGender(e.target.value as 'ALL' | 'L' | 'P')}
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-            >
-              <option value="ALL">Semua Gender ({counts.all} Siswa)</option>
-              <option value="L">Laki-laki (L) ({counts.genderL} Siswa)</option>
-              <option value="P">Perempuan (P) ({counts.genderP} Siswa)</option>
-            </select>
-          </div>
-
-          {/* Action Buttons: Reset & Unduh HTML */}
-          <div className="sm:col-span-3 flex items-center justify-end gap-1.5 shrink-0">
-            {(selectedStatus !== 'ALL' || selectedGender !== 'ALL' || searchQuery.trim() !== '') && (
-              <button
-                id="btn-reset-filters"
-                onClick={() => {
-                  setSelectedStatus('ALL');
-                  setSelectedGender('ALL');
-                  setSearchQuery('');
-                }}
-                className="flex-1 sm:flex-initial px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-2xs"
-                title="Reset Semua Filter"
+        {/* Dropdown Filters Bar: Status Pendaftaran & Jenis Kelamin Berdampingan di HP */}
+        <div className="pt-2 border-t border-slate-100">
+          <div className="grid grid-cols-2 sm:flex sm:items-end gap-2">
+            {/* Dropdown 1: Status Pendaftaran */}
+            <div className="col-span-1 sm:w-64 min-w-0">
+              <label htmlFor="filter-admin-status" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 truncate">
+                Status Pendaftaran
+              </label>
+              <select
+                id="filter-admin-status"
+                value={selectedStatus}
+                onChange={e => setSelectedStatus(e.target.value)}
+                className="admin-control w-full bg-slate-50 border border-slate-200 rounded-lg px-2 sm:px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer truncate"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Reset</span>
-              </button>
-            )}
+                <option value="ALL">Semua Status ({counts.all})</option>
+                <option value="Register">Menunggu ({counts.register})</option>
+                <option value="Diterima">Diterima ({counts.diterima})</option>
+                <option value="Pembatalan Keanggotaan">Dibatalkan ({counts.pembatalan})</option>
+              </select>
+            </div>
 
-            <button
-              id="btn-download-filtered-html"
-              onClick={handleDownloadFilteredHtml}
-              className="flex-1 sm:flex-initial px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-2xs"
-              title="Unduh / Cetak Dokumen Data Siswa (HTML) Sesuai Filter Saat Ini"
-            >
-              <FileCode className="w-3.5 h-3.5 text-indigo-600" />
-              <span>HTML Siswa</span>
-            </button>
+            {/* Dropdown 2: Jenis Kelamin */}
+            <div className="col-span-1 sm:w-48 min-w-0">
+              <label htmlFor="filter-admin-gender" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 truncate">
+                Jenis Kelamin
+              </label>
+              <select
+                id="filter-admin-gender"
+                value={selectedGender}
+                onChange={e => setSelectedGender(e.target.value as 'ALL' | 'L' | 'P')}
+                className="admin-control w-full bg-slate-50 border border-slate-200 rounded-lg px-2 sm:px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer truncate"
+              >
+                <option value="ALL">Semua Gender ({counts.all})</option>
+                <option value="L">Laki-laki (L) ({counts.genderL})</option>
+                <option value="P">Perempuan (P) ({counts.genderP})</option>
+              </select>
+            </div>
+
+            {/* Action Button: Reset Filter (jika ada filter yang aktif) */}
+            {(selectedStatus !== 'ALL' || selectedGender !== 'ALL' || searchQuery.trim() !== '') && (
+              <div className="col-span-2 sm:col-span-1 sm:ml-auto flex items-center justify-end">
+                <button
+                  id="btn-reset-filters"
+                  onClick={() => {
+                    setSelectedStatus('ALL');
+                    setSelectedGender('ALL');
+                    setSearchQuery('');
+                  }}
+                  className="w-full sm:w-auto px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-2xs"
+                  title="Reset Semua Filter"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset Filter</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -693,7 +674,7 @@ export const AdminPortal: React.FC = () => {
                       <select
                         value={st.status}
                         onChange={e => handleQuickStatusChange(st.id, e.target.value as RegistrationStatus)}
-                        className={`text-[10px] font-bold px-2 py-1 rounded-md border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                        className={`admin-control admin-status-select text-[10.5px] font-bold px-2 py-1 rounded-md border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
                           st.status === 'Register' ? 'bg-blue-50 text-blue-800 border-blue-200' :
                           st.status === 'Diterima' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
                           'bg-rose-50 text-rose-800 border-rose-200'
@@ -833,7 +814,7 @@ export const AdminPortal: React.FC = () => {
                           <select
                             value={student.status}
                             onChange={e => handleQuickStatusChange(student.id, e.target.value as RegistrationStatus)}
-                            className={`text-xs font-bold px-2 py-1 rounded-lg border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                            className={`admin-control admin-status-select text-xs font-bold px-2 py-1 rounded-lg border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
                               student.status === 'Register' ? 'bg-blue-50 text-blue-800 border-blue-200' :
                               student.status === 'Diterima' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
                               'bg-rose-50 text-rose-800 border-rose-200'

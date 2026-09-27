@@ -26,17 +26,17 @@ export interface WhatsAppTemplatesMap {
 export const DEFAULT_WHATSAPP_TEMPLATES: WhatsAppTemplatesMap = {
   REGISTRATION_CONFIRMATION:
     `Halo Bapak/Ibu {parentName} 👋,\n\n` +
-    `Terima kasih telah mendaftarkan ananda *{studentName}* di kelas *Volleyball Training for Kids*! 🏐✨\n\n` +
+    `Terima kasih telah mendaftarkan ananda *{studentName}* di kelas *ERA Kids*! 🏐✨\n\n` +
     `Data registrasi telah tersimpan di sistem manajemen ERA Kids:\n` +
     `📋 *No. Registrasi:* {regNumber}\n` +
     `🎽 *No. Jersey:* #{jerseyNumber} ({gender})\n` +
     `👶 *Nama Siswa:* {studentName} ({nickname})\n` +
-    `🏐 *Kelas:* Volleyball Training for Kids\n` +
+    `🏐 *Kelas:* ERA Kids\n` +
     `⏰ *Jadwal Latihan:* Setiap Rabu & Jum'at (18.45 - 21.00 WIB)\n` +
     `📍 *Status Saat Ini:* {status}\n\n` +
     `Tim pelatih kami akan memverifikasi berkas pendaftaran ananda. Ayah/Bunda juga dapat mengecek status pendaftaran mandiri kapan saja di Portal Orang Tua dengan memasukkan No. Registrasi: *{regNumber}*.\n\n` +
     `Salam olahraga & semangat juara,\n` +
-    `*Manajemen Volleyball Training for Kids - ERA Kids* 🏐`,
+    `*Manajemen ERA Kids* 🏐`,
 
   ACCEPTANCE_WELCOME:
     `Selamat Bapak/Ibu {parentName}! 🎉🏐\n\n` +
@@ -44,25 +44,25 @@ export const DEFAULT_WHATSAPP_TEMPLATES: WhatsAppTemplatesMap = {
     `⭐ *{studentName}* (*{nickname}*)\n` +
     `No. Registrasi: *{regNumber}*\n` +
     `No. Jersey: *#{jerseyNumber}* ({gender})\n\n` +
-    `Telah resmi *DITERIMA* sebagai siswa di kelas *Volleyball Training for Kids*! 🏆\n\n` +
+    `Telah resmi *DITERIMA* sebagai siswa di kelas *ERA Kids*! 🏆\n\n` +
     `📅 *Jadwal Latihan Rutin:*\n` +
     `Setiap hari *Rabu & Jum'at*, pukul *18.45 sd. 21.00 WIB*.\n\n` +
     `Perlengkapan latihan (jersey seragam resmi) dapat diambil saat kehadiran perdana. Siswa diharapkan hadir 15 menit sebelum latihan dimulai dengan memakai sepatu olahraga dan membawa botol minum.\n\n` +
     `Selamat bergabung dan mari berlatih bersama untuk membentuk sportivitas dan teknik voli terbaik! 🏐✨\n\n` +
     `Salam hormat,\n` +
-    `*Tim Pelatih & Manajemen Volleyball Training for Kids*`,
+    `*Tim Pelatih & Manajemen ERA Kids*`,
 
   MEMBERSHIP_CANCELLATION:
     `Halo Bapak/Ibu {parentName},\n\n` +
-    `Kami mengonfirmasi bahwa status keanggotaan untuk ananda *{studentName}* (No. Registrasi: *{regNumber}*) pada kelas *Volleyball Training for Kids* telah diubah menjadi:\n\n` +
+    `Kami mengonfirmasi bahwa status keanggotaan untuk ananda *{studentName}* (No. Registrasi: *{regNumber}*) pada kelas *ERA Kids* telah diubah menjadi:\n\n` +
     `❌ *Pembatalan Keanggotaan*\n\n` +
     `No. Jersey #{jerseyNumber} telah dinonaktifkan dari sistem. Apabila Ayah/Bunda ingin mengaktifkan kembali keanggotaan ananda di kemudian hari, silakan hubungi tim manajemen kami.\n\n` +
     `Terima kasih atas kepercayaan yang telah diberikan kepada kami selama ini.\n\n` +
     `Salam hormat,\n` +
-    `*Manajemen Volleyball Training for Kids* 🏐`,
+    `*Manajemen ERA Kids* 🏐`,
 
   CUSTOM:
-    `Halo Bapak/Ibu {parentName}, ini informasi resmi dari Volleyball Training for Kids mengenai ananda {studentName} (No. Reg: {regNumber}, No. Jersey: #{jerseyNumber}). Jadwal latihan: Rabu & Jum'at (18.45 - 21.00 WIB). Silakan hubungi kami untuk informasi lebih lanjut.`
+    `Halo Bapak/Ibu {parentName}, ini informasi resmi dari ERA Kids mengenai ananda {studentName} (No. Reg: {regNumber}, No. Jersey: #{jerseyNumber}). Jadwal latihan: Rabu & Jum'at (18.45 - 21.00 WIB). Silakan hubungi kami untuk informasi lebih lanjut.`
 };
 
 const STORAGE_KEY_WA_TEMPLATES = 'era_kids_custom_wa_templates_v1';
@@ -138,12 +138,12 @@ export function generateWhatsAppMessage(
 
   switch (type) {
     case 'REGISTRATION_CONFIRMATION':
-      title = 'Konfirmasi Pendaftaran Volleyball Training for Kids';
+      title = 'Konfirmasi Pendaftaran ERA Kids';
       message = interpolateTemplate(templates.REGISTRATION_CONFIRMATION, student);
       break;
 
     case 'ACCEPTANCE_WELCOME':
-      title = 'Pemberitahuan Penerimaan Siswa Volleyball Training';
+      title = 'Pemberitahuan Penerimaan Siswa ERA Kids';
       message = interpolateTemplate(templates.ACCEPTANCE_WELCOME, student);
       break;
 
@@ -153,7 +153,7 @@ export function generateWhatsAppMessage(
       break;
 
     case 'CUSTOM':
-      title = 'Pesan Khusus Volleyball Training for Kids';
+      title = 'Pesan Khusus ERA Kids';
       if (extraParams?.customText && extraParams.customText.trim()) {
         message = extraParams.customText;
       } else {

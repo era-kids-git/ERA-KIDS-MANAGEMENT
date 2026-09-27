@@ -24,6 +24,7 @@ import { CoachAttendancePortal } from './components/coach/CoachAttendancePortal.
 import { AdminPinModal } from './components/auth/AdminPinModal.tsx';
 import { RoleGuideModal } from './components/common/RoleGuideModal.tsx';
 import { ShareParentLinkModal } from './components/admin/ShareParentLinkModal.tsx';
+import { EraKidsLogo } from './components/common/EraKidsLogo.tsx';
 
 type AppMode = 'admin' | 'parent' | 'dual' | 'coach';
 
@@ -135,9 +136,7 @@ const AppContent: React.FC = () => {
           <div className="max-w-7xl mx-auto px-3 sm:px-6 h-12 flex items-center justify-between gap-2">
             {/* Simple & Clean ERA Kids Branding */}
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-tr from-amber-500 via-orange-500 to-rose-500 flex items-center justify-center text-white font-black text-xs sm:text-sm shadow-2xs shrink-0">
-                🏐
-              </div>
+              <EraKidsLogo className="w-8 h-8" />
               <span className="font-black text-sm sm:text-base tracking-tight text-slate-900 truncate">
                 ERA Kids
               </span>
@@ -177,9 +176,7 @@ const AppContent: React.FC = () => {
           <div className="max-w-7xl mx-auto px-3 sm:px-6 h-12 flex items-center justify-between gap-2">
             {/* Simple & Clean ERA Kids Branding */}
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-tr from-indigo-600 via-purple-600 to-rose-500 flex items-center justify-center text-white font-extrabold text-[11px] sm:text-xs shadow-2xs tracking-wide shrink-0">
-                ERA
-              </div>
+              <EraKidsLogo className="w-8 h-8" />
               <span className="font-black text-sm sm:text-base tracking-tight text-slate-900 truncate">
                 ERA Kids
               </span>
@@ -252,9 +249,7 @@ const AppContent: React.FC = () => {
           <div className="max-w-7xl mx-auto px-2.5 sm:px-6 h-13 sm:h-14 flex items-center justify-between gap-1.5 sm:gap-3">
             {/* Simple & Clean ERA Kids Branding */}
             <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-tr from-indigo-600 via-purple-600 to-rose-500 flex items-center justify-center text-white font-extrabold text-[11px] sm:text-xs shadow-xs tracking-wide shrink-0">
-                ERA
-              </div>
+              <EraKidsLogo className="w-8 h-8" />
               <span className="font-black text-sm sm:text-base tracking-tight text-slate-900 hidden xs:inline">
                 ERA Kids
               </span>

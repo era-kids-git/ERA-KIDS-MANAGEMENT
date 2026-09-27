@@ -427,7 +427,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         district: data.district || '',
         city: data.city || 'BEKASI',
         programId: 'volleyball-kids',
-        programName: 'Volleyball Training for Kids',
+        programName: 'ERA Kids',
         branch: 'Kelas Utama',
         preferredSchedule: "Rabu & Jum'at (18.45 - 21.00 WIB)",
         specialNotes: data.specialNotes || '',
@@ -441,7 +441,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             title: 'Notifikasi Otomatis Registrasi Baru',
             sentAt: nowIso,
             sentBy: 'System Auto-Engine',
-            message: `Pendaftaran ${data.studentName} (No. Reg: ${canonicalRegNumber}, Jersey: #${data.jerseyNumber}) untuk kelas Volleyball Training for Kids berhasil dicatat di ERA Kids Management.`,
+            message: `Pendaftaran ${data.studentName} (No. Reg: ${canonicalRegNumber}, Jersey: #${data.jerseyNumber}) untuk kelas ERA Kids berhasil dicatat di ERA Kids Management.`,
             status: 'TERKIRIM',
             targetNumber: data.whatsapp || ''
           }

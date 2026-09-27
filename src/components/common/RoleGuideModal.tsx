@@ -11,6 +11,7 @@ import {
   Sparkles,
   ExternalLink
 } from 'lucide-react';
+import { EraKidsLogo } from './EraKidsLogo.tsx';
 
 interface RoleGuideModalProps {
   isOpen: boolean;
@@ -154,7 +155,7 @@ export const RoleGuideModal: React.FC<RoleGuideModalProps> = ({
           <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 flex flex-col sm:flex-row items-center justify-between gap-3">
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-base">🏐</span>
+                <EraKidsLogo className="w-5 h-5 shrink-0" />
                 <h5 className="font-bold text-xs text-amber-950">Portal Presensi Latihan Pelatih</h5>
                 <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-200 text-amber-900">Baru</span>
               </div>

@@ -6,6 +6,7 @@ export interface StudentHtmlExportOptions {
   initialStatus?: string; // 'ALL' | 'Register' | 'Diterima' | 'Pembatalan Keanggotaan'
   initialGender?: string; // 'ALL' | 'L' | 'P'
   filteredOnly?: boolean;
+  logoSrc?: string;
 }
 
 export function generateStudentsDataHtml(
@@ -21,7 +22,8 @@ export function generateStudentsDataHtml(
   const {
     initialStatus = 'ALL',
     initialGender = 'ALL',
-    filteredOnly = false
+    filteredOnly = false,
+    logoSrc = 'logo.png'
   } = options;
 
   // Filter if pre-filtered is requested
@@ -366,7 +368,7 @@ export function generateStudentsDataHtml(
   <div class="container">
     <div class="header">
       <div class="header-title-block">
-        <h1>🏐 DATA SISWA ERA Kids</h1>
+        <h1><img src="${logoSrc}" alt="Logo" style="width: 36px; height: 36px; object-fit: contain; vertical-align: middle; display: inline-block; margin-right: 10px;" onerror="if(!this.getAttribute('data-err')){this.setAttribute('data-err','1');this.src='logo.png';}" />DATA SISWA ERA Kids</h1>
         <p>Buku Profil & Direktori Siswa ERA Kids • Dicetak pada: <strong>${printDate}</strong></p>
       </div>
       <div>
@@ -508,16 +510,39 @@ export function generateStudentsDataHtml(
 </html>`;
 }
 
-export function downloadStudentsDataHtmlFile(
+export async function downloadStudentsDataHtmlFile(
   students: StudentRegistration[],
   options: StudentHtmlExportOptions = {}
-): void {
+): Promise<void> {
   if (students.length === 0) {
     alert('Tidak ada data siswa untuk diunduh.');
     return;
   }
 
-  const htmlContent = generateStudentsDataHtml(students, options);
+  // Attempt to load logo.png as Base64 Data URL so the saved HTML file displays the logo offline/standalone
+  let resolvedLogoSrc = options.logoSrc || 'logo.png';
+  try {
+    const res = await fetch('/logo.png');
+    if (res.ok) {
+      const blob = await res.blob();
+      const reader = new FileReader();
+      const dataUrl = await new Promise<string>((resolve) => {
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => resolve('logo.png');
+        reader.readAsDataURL(blob);
+      });
+      if (dataUrl && dataUrl.startsWith('data:')) {
+        resolvedLogoSrc = dataUrl;
+      }
+    }
+  } catch {
+    resolvedLogoSrc = options.logoSrc || 'logo.png';
+  }
+
+  const htmlContent = generateStudentsDataHtml(students, {
+    ...options,
+    logoSrc: resolvedLogoSrc
+  });
   const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -534,5 +559,5 @@ export function downloadStudentsDataHtmlFile(
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

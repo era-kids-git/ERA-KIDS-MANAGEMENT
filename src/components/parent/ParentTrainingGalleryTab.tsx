@@ -24,6 +24,7 @@ import {
   getMediaExpiryDate, 
   MEDIA_RETENTION_DAYS 
 } from '../../utils/mediaRetention';
+import { EraKidsLogo } from '../common/EraKidsLogo';
 
 interface ParentTrainingGalleryTabProps {
   sessions: TrainingSession[];
@@ -160,8 +161,8 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
   if (sessions.length === 0) {
     return (
       <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center space-y-3">
-        <div className="w-16 h-16 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto text-2xl shadow-inner">
-          🏐
+        <div className="w-16 h-16 flex items-center justify-center mx-auto">
+          <EraKidsLogo className="w-14 h-14" />
         </div>
         <h3 className="text-base font-bold text-slate-900">
           Belum Ada Dokumentasi Sesi Latihan
