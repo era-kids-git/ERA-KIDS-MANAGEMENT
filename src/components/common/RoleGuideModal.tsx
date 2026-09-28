@@ -125,7 +125,7 @@ export const RoleGuideModal: React.FC<RoleGuideModalProps> = ({
                 <ul className="text-xs text-slate-700 space-y-1.5 mb-4">
                   <li className="flex items-center gap-1.5">
                     <span className="text-indigo-600 font-bold">🔒</span>
-                    <span><strong>Dilindungi PIN Keamanan:</strong> Default PIN <code className="font-mono bg-white px-1 rounded font-bold text-indigo-900">1234</code></span>
+                    <span><strong>Dilindungi PIN Keamanan:</strong> Akses hanya untuk staf resmi pengurus</span>
                   </li>
                   <li className="flex items-center gap-1.5">
                     <span className="text-indigo-600 font-bold">✓</span>

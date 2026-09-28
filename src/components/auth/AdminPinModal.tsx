@@ -7,7 +7,7 @@ interface AdminPinModalProps {
   onSuccess: () => void;
 }
 
-export const ADMIN_DEFAULT_PIN = '1234';
+export const ADMIN_DEFAULT_PIN = '191919';
 
 export const AdminPinModal: React.FC<AdminPinModalProps> = ({
   isOpen,
@@ -25,15 +25,15 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
     setIsSubmitting(true);
     setError('');
 
-    // Verification check (Supports '1234' or 'era2026')
-    if (pin === ADMIN_DEFAULT_PIN || pin === 'era2026') {
+    // Verification check for Admin PIN
+    if (pin === ADMIN_DEFAULT_PIN) {
       localStorage.setItem('era_kids_admin_auth', 'true');
       setIsSubmitting(false);
       onSuccess();
       onClose();
     } else {
       setIsSubmitting(false);
-      setError('PIN Admin salah. Silakan periksa kembali atau gunakan PIN default demo: 1234');
+      setError('PIN Admin salah. Silakan periksa kembali kode otorisasi pengurus.');
     }
   };
 
@@ -79,14 +79,14 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
               <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
               <input
                 type="password"
-                maxLength={8}
+                maxLength={10}
                 autoFocus
                 value={pin}
                 onChange={e => {
                   setPin(e.target.value);
                   if (error) setError('');
                 }}
-                placeholder="Masukkan PIN (Demo: 1234)"
+                placeholder="Masukkan 6 Digit PIN Admin"
                 className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono tracking-widest focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
@@ -95,9 +95,6 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
                 <AlertCircle className="w-3.5 h-3.5" /> {error}
               </p>
             )}
-            <p className="text-[11px] text-slate-500 mt-2">
-              💡 <em>Petunjuk Pengujian Demo: Masukkan PIN <strong>1234</strong> atau <strong>era2026</strong>.</em>
-            </p>
           </div>
 
           {/* Action buttons */}
