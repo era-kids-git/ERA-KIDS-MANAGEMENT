@@ -16,7 +16,7 @@ import { EraKidsLogo } from './EraKidsLogo.tsx';
 interface RoleGuideModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelectRole: (role: 'parent' | 'admin' | 'dual' | 'coach') => void;
+  onSelectRole: (role: 'parent' | 'admin' | 'coach') => void;
   onOpenShareModal: () => void;
 }
 
