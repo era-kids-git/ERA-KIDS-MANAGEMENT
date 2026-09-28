@@ -18,36 +18,60 @@ export const REGISTRATIONS_COLLECTION = 'registrations';
 export const TRAINING_SESSIONS_COLLECTION = 'training_sessions';
 
 /**
- * Inisialisasi data awal di Firestore jika koleksi masih kosong
+ * Inisialisasi Firestore: bersihkan data dummy jika ada, jangan isi dummy baru
  */
 export async function bootstrapFirestoreIfEmpty(): Promise<void> {
   try {
     const regRef = collection(db, REGISTRATIONS_COLLECTION);
     const regSnapshot = await getDocs(regRef);
 
-    if (regSnapshot.empty) {
-      console.log('[Firestore] Koleksi registrations kosong. Mengisi data awal ke Cloud Firestore...');
+    // Jika ada data dummy sebelumnya, bersihkan agar database bersih untuk produksi
+    if (!regSnapshot.empty) {
       const batch = writeBatch(db);
-      for (const item of INITIAL_SEED_REGISTRATIONS) {
-        const itemDoc = doc(db, REGISTRATIONS_COLLECTION, item.id);
-        batch.set(itemDoc, item);
+      let dummyFound = false;
+
+      regSnapshot.docs.forEach((docSnap) => {
+        const d = docSnap.data();
+        if (
+          docSnap.id.startsWith('reg_100') ||
+          docSnap.id.startsWith('reg_dummy') ||
+          d.studentName === 'Muhammad Rayhan Al-Fatih' ||
+          d.studentName === 'Alya Shakila Putri' ||
+          d.studentName === 'Kenzo Alvaro Dinata' ||
+          d.studentName === 'Kenzo Pratama Wijaya' ||
+          d.studentName === 'Zahra Naura Khairunnisa' ||
+          d.studentName === 'Nadine Aurelia Siregar' ||
+          d.studentName === 'Bima Sakti Yudhistira'
+        ) {
+          batch.delete(docSnap.ref);
+          dummyFound = true;
+        }
+      });
+
+      if (dummyFound) {
+        await batch.commit();
+        console.log('[Firestore] Data dummy pendaftaran berhasil dibersihkan.');
       }
-      await batch.commit();
-      console.log('[Firestore] Data awal pendaftaran berhasil di-bootstrap ke Firestore!');
     }
 
     const sessRef = collection(db, TRAINING_SESSIONS_COLLECTION);
     const sessSnapshot = await getDocs(sessRef);
 
-    if (sessSnapshot.empty) {
-      console.log('[Firestore] Koleksi training_sessions kosong. Mengisi sesi awal ke Cloud Firestore...');
+    if (!sessSnapshot.empty) {
       const batch = writeBatch(db);
-      for (const item of INITIAL_SEED_TRAINING_SESSIONS) {
-        const itemDoc = doc(db, TRAINING_SESSIONS_COLLECTION, item.id);
-        batch.set(itemDoc, item);
+      let dummySessFound = false;
+
+      sessSnapshot.docs.forEach((docSnap) => {
+        if (docSnap.id === 'session_demo_prev' || docSnap.id.startsWith('demo_')) {
+          batch.delete(docSnap.ref);
+          dummySessFound = true;
+        }
+      });
+
+      if (dummySessFound) {
+        await batch.commit();
+        console.log('[Firestore] Data dummy sesi latihan berhasil dibersihkan.');
       }
-      await batch.commit();
-      console.log('[Firestore] Data awal sesi presensi berhasil di-bootstrap ke Firestore!');
     }
   } catch (err) {
     console.warn('[Firestore] Info bootstrap Firestore:', err);
@@ -353,31 +377,32 @@ export async function addWhatsAppNotificationInFirestore(
 }
 
 /**
- * Reset demo data di Firestore
+ * Kosongkan semua data di Cloud Firestore untuk lingkungan produksi
+ */
+export async function clearAllDataFromFirestore(): Promise<void> {
+  try {
+    const regSnap = await getDocs(collection(db, REGISTRATIONS_COLLECTION));
+    if (!regSnap.empty) {
+      const batch1 = writeBatch(db);
+      regSnap.docs.forEach((d) => batch1.delete(d.ref));
+      await batch1.commit();
+    }
+
+    const sessSnap = await getDocs(collection(db, TRAINING_SESSIONS_COLLECTION));
+    if (!sessSnap.empty) {
+      const batch2 = writeBatch(db);
+      sessSnap.docs.forEach((d) => batch2.delete(d.ref));
+      await batch2.commit();
+    }
+    console.log('[Firestore] Semua data Firestore berhasil dikosongkan.');
+  } catch (err) {
+    console.warn('[Firestore] Error saat mengosongkan data Firestore:', err);
+  }
+}
+
+/**
+ * Reset / kosongkan data di Firestore
  */
 export async function resetDemoDataInFirestore(): Promise<void> {
-  // Hapus semua dokumen registrations
-  const regSnap = await getDocs(collection(db, REGISTRATIONS_COLLECTION));
-  const batch1 = writeBatch(db);
-  regSnap.docs.forEach((d) => batch1.delete(d.ref));
-  await batch1.commit();
-
-  // Isi ulang dengan initial seed
-  const batch2 = writeBatch(db);
-  for (const item of INITIAL_SEED_REGISTRATIONS) {
-    batch2.set(doc(db, REGISTRATIONS_COLLECTION, item.id), item);
-  }
-  await batch2.commit();
-
-  // Sesi
-  const sessSnap = await getDocs(collection(db, TRAINING_SESSIONS_COLLECTION));
-  const batch3 = writeBatch(db);
-  sessSnap.docs.forEach((d) => batch3.delete(d.ref));
-  await batch3.commit();
-
-  const batch4 = writeBatch(db);
-  for (const item of INITIAL_SEED_TRAINING_SESSIONS) {
-    batch4.set(doc(db, TRAINING_SESSIONS_COLLECTION, item.id), item);
-  }
-  await batch4.commit();
+  await clearAllDataFromFirestore();
 }

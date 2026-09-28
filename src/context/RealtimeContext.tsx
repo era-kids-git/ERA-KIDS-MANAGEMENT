@@ -633,9 +633,12 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const resetDemoData = async () => {
     try {
       await resetDemoDataInFirestore();
-      await fetch('/api/reset-demo', { method: 'POST' });
+      await fetch('/api/reset-demo', { method: 'POST' }).catch(() => {});
+      setRegistrations([]);
+      setTrainingSessions([]);
+      calculateStats([]);
     } catch (err) {
-      console.error('Error resetting demo:', err);
+      console.error('Error resetting/clearing data:', err);
     }
   };
 

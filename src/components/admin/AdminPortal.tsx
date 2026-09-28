@@ -56,7 +56,7 @@ export const AdminPortal: React.FC = () => {
     updateRegistration, 
     fetchRegistrations,
     soundEnabled, 
-    setSoundEnabled 
+    setSoundEnabled
   } = useRealtime();
 
   // Section switcher: 'students' (Data Siswa) or 'attendance' (Presensi Pelatih)
