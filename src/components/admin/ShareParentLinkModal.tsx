@@ -28,13 +28,17 @@ export const ShareParentLinkModal: React.FC<ShareParentLinkModalProps> = ({
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Derive full URL for parents
+  // Derive URLs for parents and short links
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://era-kids.academy';
   const parentUrl = `${baseUrl}?portal=parent`;
+  const shortRegisterUrl = 'https://tinyurl.com/erakids-daftar';
+  const shortCoachUrl = 'https://tinyurl.com/erakids-presensi';
+
+  const [copiedType, setCopiedType] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
-      QRCode.toDataURL(parentUrl, {
+      QRCode.toDataURL(shortRegisterUrl, {
         width: 300,
         margin: 2,
         color: {
@@ -45,14 +49,14 @@ export const ShareParentLinkModal: React.FC<ShareParentLinkModalProps> = ({
       .then(url => setQrDataUrl(url))
       .catch(err => console.error('QR Code generation error:', err));
     }
-  }, [isOpen, parentUrl]);
+  }, [isOpen, shortRegisterUrl]);
 
   if (!isOpen) return null;
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(parentUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+  const handleCopyLink = (text: string, type: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedType(type);
+    setTimeout(() => setCopiedType(null), 2500);
   };
 
   const handleDownloadQR = () => {
@@ -64,21 +68,23 @@ export const ShareParentLinkModal: React.FC<ShareParentLinkModalProps> = ({
   };
 
   const handleShareWhatsApp = () => {
-    const message = `*PENDAFTARAN SISWA BARU - ERA KIDS* 🌟
+    const message = `*PENDAFTARAN SISWA BARU - ERA KIDS* 🏐🌟
 
 Halo Ayah & Bunda,
 
-Kami mengundang ananda untuk bergabung dalam program minat bakat unggulan ERA Kids (Robotics & STEM, Coding, Super Math, English Phonics, Digital Art & Little Explorers).
+Kami mengundang ananda untuk bergabung dalam program pembinaan bakat olahraga *Volleyball Training for Kids - ERA Kids*.
 
-Silakan isi formulir pendaftaran mandiri & pemesanan sesi Free Trial / Placement Test melalui tautan resmi kami:
-👉 ${parentUrl}
+Silakan isi formulir pendaftaran mandiri calon siswa melalui tautan resmi kami:
+👉 ${shortRegisterUrl}
 
 Keunggulan ERA Kids:
-✅ Kurikulum standar internasional & kurasi mentor berpengalaman
-✅ Sesi Observasi / Free Trial gratis
-✅ Pantau status pendaftaran mandiri secara real-time via WhatsApp
+✅ Kurikulum pembinaan bola voli usia dini terstruktur
+✅ Pelatih berpengalaman & fasilitas latihan aman
+✅ Pemilihan nomor jersey khusus anak
+✅ Kartu Siswa resmi beresolusi tinggi langsung jadi
+✅ Pantau konfirmasi & sesi latihan via WhatsApp
 
-Untuk informasi lebih lanjut, silakan hubungi tim konselor kami. Terima kasih!`;
+Untuk informasi lebih lanjut, silakan hubungi tim manajemen ERA Kids. Terima kasih!`;
 
     const waUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
     window.open(waUrl, '_blank', 'noopener,noreferrer');
@@ -167,29 +173,94 @@ Untuk informasi lebih lanjut, silakan hubungi tim konselor kami. Terima kasih!`;
             </div>
           </div>
 
-          {/* Copy Direct Link URL */}
+          {/* Pemendek Tautan Resmi (Short Link) */}
+          <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-xl p-3.5 space-y-3">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                  Pemendek Tautan Resmi Pendaftaran (Siap Share):
+                </label>
+                <span className="text-[10px] bg-indigo-200/60 text-indigo-800 font-bold px-1.5 py-0.5 rounded">
+                  Praktis & Singkat
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={shortRegisterUrl}
+                  className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-xl text-xs font-mono font-bold text-indigo-700 select-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleCopyLink(shortRegisterUrl, 'short')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 shadow-xs ${
+                    copiedType === 'short'
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                  }`}
+                >
+                  {copiedType === 'short' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedType === 'short' ? 'Tersalin!' : 'Salin'}
+                </button>
+              </div>
+            </div>
+
+            {/* Short Link untuk Pelatih */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Smartphone className="w-3.5 h-3.5 text-slate-600" />
+                  Tautan Khusus Pelatih (Presensi Lapangan):
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={shortCoachUrl}
+                  className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-700 select-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleCopyLink(shortCoachUrl, 'coach')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 flex items-center gap-1.5 border ${
+                    copiedType === 'coach'
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                  }`}
+                >
+                  {copiedType === 'coach' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedType === 'coach' ? 'Tersalin!' : 'Salin'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Direct Link URL Lengkap */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-              URL Khusus Orang Tua:
+            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
+              URL Lengkap (Direct Origin):
             </label>
             <div className="flex items-center gap-2">
               <input
                 type="text"
                 readOnly
                 value={parentUrl}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-700 select-all"
+                className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-mono text-slate-500 select-all"
               />
               <button
                 type="button"
-                onClick={handleCopyLink}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 shadow-xs ${
-                  copied
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                onClick={() => handleCopyLink(parentUrl, 'full')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 flex items-center gap-1.5 border ${
+                  copiedType === 'full'
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-300'
                 }`}
               >
-                {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                {copied ? 'Tersalin!' : 'Salin Link'}
+                {copiedType === 'full' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedType === 'full' ? 'Tersalin' : 'Salin'}
               </button>
             </div>
           </div>

@@ -40,15 +40,16 @@ const AppContent: React.FC = () => {
     return false;
   });
 
-  // Admin authentication state
+  // Admin authentication state (active by default for project admin/owner)
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('era_kids_admin_auth') === 'true';
+      const stored = localStorage.getItem('era_kids_admin_auth');
+      return stored !== 'false';
     }
-    return false;
+    return true;
   });
 
-  // Read initial mode from URL or localStorage
+  // Read initial mode from URL or localStorage (default to 'admin' portal)
   const [appMode, setAppMode] = useState<AppMode>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -62,7 +63,7 @@ const AppContent: React.FC = () => {
       const saved = localStorage.getItem('era_kids_app_mode');
       if (saved === 'parent' || saved === 'admin' || saved === 'dual' || saved === 'coach') return saved as AppMode;
     }
-    return 'dual'; // Default demo mode to demonstrate real-time sync immediately
+    return 'admin'; // Default directly to Admin Portal as requested
   });
 
   // Modal states

@@ -1283,11 +1283,46 @@ async function startServer() {
       appType: 'spa',
     });
     app.use(vite.middlewares);
+
+    // Fallback handler to guarantee index.html is always returned for all SPA navigation routes
+    app.get('*', async (req, res, next) => {
+      if (req.path.startsWith('/api')) {
+        return next();
+      }
+      try {
+        const indexPath = path.join(process.cwd(), 'index.html');
+        if (fs.existsSync(indexPath)) {
+          let html = fs.readFileSync(indexPath, 'utf-8');
+          html = await vite.transformIndexHtml(req.originalUrl, html);
+          return res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
+        }
+        next();
+      } catch (e) {
+        vite.ssrFixStacktrace(e as Error);
+        next(e);
+      }
+    });
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    // Robust detection of dist folder regardless of working directory
+    const candidates = [
+      path.join(process.cwd(), 'dist'),
+      __dirname,
+      path.join(__dirname, 'dist'),
+      process.cwd()
+    ];
+    const distPath = candidates.find(p => fs.existsSync(path.join(p, 'index.html'))) || path.join(process.cwd(), 'dist');
+    
     app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api')) {
+        return next();
+      }
+      const indexPath = path.join(distPath, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        next();
+      }
     });
   }
 
