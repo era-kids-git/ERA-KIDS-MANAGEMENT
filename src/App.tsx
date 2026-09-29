@@ -29,29 +29,37 @@ import { EraKidsLogo } from './components/common/EraKidsLogo.tsx';
 type AppMode = 'admin' | 'parent' | 'coach';
 
 const AppContent: React.FC = () => {
-  // Check if URL has ?portal=parent, ?app=parent, ?mode=register, ?portal=coach, ?mode=attendance
+  // Check if URL has ?portal=parent, ?app=parent, ?mode=register, ?portal=coach, ?mode=attendance, or subdomains (daftar, pelatih, admin)
   const [initialParams] = useState(() => {
     if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname.toLowerCase();
+      const isSubdomainParent = hostname.startsWith('daftar.') || hostname.startsWith('registrasi.') || hostname.startsWith('ortu.');
+      const isSubdomainCoach = hostname.startsWith('pelatih.') || hostname.startsWith('presensi.') || hostname.startsWith('absen.') || hostname.startsWith('coach.');
+      const isSubdomainAdmin = hostname.startsWith('admin.') || hostname.startsWith('pusat.') || hostname.startsWith('manajemen.');
+
       const params = new URLSearchParams(window.location.search);
       const portal = params.get('portal');
       const app = params.get('app');
       const mode = params.get('mode');
-      const isParent = portal === 'parent' || app === 'parent' || mode === 'register';
-      const isCoach = portal === 'coach' || app === 'coach' || mode === 'attendance';
-      return { isParent, isCoach, portal, app, mode };
+      const isParent = isSubdomainParent || portal === 'parent' || app === 'parent' || mode === 'register';
+      const isCoach = isSubdomainCoach || portal === 'coach' || app === 'coach' || mode === 'attendance';
+      const isAdmin = isSubdomainAdmin || app === 'admin' || portal === 'admin';
+      return { isParent, isCoach, isAdmin, portal, app, mode };
     }
-    return { isParent: false, isCoach: false, portal: null, app: null, mode: null };
+    return { isParent: false, isCoach: false, isAdmin: false, portal: null, app: null, mode: null };
   });
 
   // Admin authentication state:
-  // If user opens as parent link (?portal=parent or ?mode=register), force non-authenticated parent state!
+  // If user opens as parent link (?portal=parent or daftar.erakids.id), force non-authenticated parent state!
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname.toLowerCase();
+      const isSubdomainParent = hostname.startsWith('daftar.') || hostname.startsWith('registrasi.') || hostname.startsWith('ortu.');
       const params = new URLSearchParams(window.location.search);
       const portal = params.get('portal');
       const app = params.get('app');
       const mode = params.get('mode');
-      if (portal === 'parent' || app === 'parent' || mode === 'register') {
+      if (isSubdomainParent || portal === 'parent' || app === 'parent' || mode === 'register') {
         return false;
       }
       const stored = localStorage.getItem('era_kids_admin_auth');
@@ -60,9 +68,20 @@ const AppContent: React.FC = () => {
     return false;
   });
 
-  // Read initial mode from URL or localStorage
+  // Read initial mode from URL or localStorage or Subdomain
   const [appMode, setAppMode] = useState<AppMode>(() => {
     if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname.toLowerCase();
+      if (hostname.startsWith('daftar.') || hostname.startsWith('registrasi.') || hostname.startsWith('ortu.')) {
+        return 'parent';
+      }
+      if (hostname.startsWith('pelatih.') || hostname.startsWith('presensi.') || hostname.startsWith('absen.') || hostname.startsWith('coach.')) {
+        return 'coach';
+      }
+      if (hostname.startsWith('admin.') || hostname.startsWith('pusat.') || hostname.startsWith('manajemen.')) {
+        return 'admin';
+      }
+
       const params = new URLSearchParams(window.location.search);
       const portal = params.get('portal');
       const app = params.get('app');
