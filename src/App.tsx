@@ -22,6 +22,7 @@ import { ParentPortal } from './components/parent/ParentPortal.tsx';
 import { AdminPortal } from './components/admin/AdminPortal.tsx';
 import { CoachAttendancePortal } from './components/coach/CoachAttendancePortal.tsx';
 import { AdminPinModal } from './components/auth/AdminPinModal.tsx';
+import { AdminAuthGate } from './components/auth/AdminAuthGate.tsx';
 import { RoleGuideModal } from './components/common/RoleGuideModal.tsx';
 import { ShareParentLinkModal } from './components/admin/ShareParentLinkModal.tsx';
 import { EraKidsLogo } from './components/common/EraKidsLogo.tsx';
@@ -50,7 +51,7 @@ const AppContent: React.FC = () => {
   });
 
   // Admin authentication state:
-  // If user opens as parent link (?portal=parent or daftar.erakids.id), force non-authenticated parent state!
+  // Must require PIN first before revealing student management!
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname.toLowerCase();
@@ -62,8 +63,8 @@ const AppContent: React.FC = () => {
       if (isSubdomainParent || portal === 'parent' || app === 'parent' || mode === 'register') {
         return false;
       }
-      const stored = localStorage.getItem('era_kids_admin_auth');
-      return stored === 'true';
+      // Check session storage
+      return sessionStorage.getItem('era_kids_admin_auth') === 'true';
     }
     return false;
   });
@@ -90,8 +91,8 @@ const AppContent: React.FC = () => {
       if (portal === 'coach' || app === 'coach' || mode === 'attendance') return 'coach';
       if (app === 'admin' || portal === 'admin') return 'admin';
 
-      const saved = localStorage.getItem('era_kids_app_mode');
-      if (saved === 'parent' || saved === 'admin' || saved === 'coach') return saved as AppMode;
+      // When opening https://erakids.id directly without portal=parent, default directly to 'admin' (Data Siswa & Manajemen)
+      return 'admin';
     }
     return 'admin';
   });
@@ -153,10 +154,19 @@ const AppContent: React.FC = () => {
   };
 
   const handleLockAdmin = () => {
-    localStorage.removeItem('era_kids_admin_auth');
+    sessionStorage.removeItem('era_kids_admin_auth');
     setIsAdminAuthenticated(false);
-    applyModeChange('parent');
   };
+
+  // If in admin mode and NOT authenticated, show the PIN Gate screen directly with ERA Kids Logo background
+  if (appMode === 'admin' && !isAdminAuthenticated) {
+    return (
+      <AdminAuthGate
+        onSuccess={() => setIsAdminAuthenticated(true)}
+        onOpenParentPortal={() => applyModeChange('parent')}
+      />
+    );
+  }
 
   // Dedicated view flags
   const isDedicatedParentView = appMode === 'parent';

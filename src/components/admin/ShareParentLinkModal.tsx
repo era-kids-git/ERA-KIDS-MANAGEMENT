@@ -29,11 +29,11 @@ export const ShareParentLinkModal: React.FC<ShareParentLinkModalProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Derive URLs for parents and short links
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://era-kids.academy';
-  const parentUrl = `${baseUrl}?portal=parent`;
-  const shortRegisterUrl = 'https://tinyurl.com/erakids-daftar';
-  const shortAdminUrl = 'https://tinyurl.com/erakids-pusat';
-  const shortCoachUrl = 'https://tinyurl.com/erakids-pelatih';
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://erakids.id';
+  const parentUrl = 'https://daftar.erakids.id';
+  const shortRegisterUrl = 'https://daftar.erakids.id';
+  const shortAdminUrl = 'https://erakids.id';
+  const shortCoachUrl = 'https://erakids.id/?portal=coach';
 
   const [copiedType, setCopiedType] = useState<string | null>(null);
 
