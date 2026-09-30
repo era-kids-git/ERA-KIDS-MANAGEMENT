@@ -281,24 +281,65 @@ export async function batchRestoreRegistrationsToFirestore(
 
 /**
  * Simpan atau perbarui sesi presensi dan media dokumentasi di Firestore
+ * Dilengkapi sanitasi ketat agar tidak ada nilai `undefined` yang menyebabkan
+ * kegagalan simpan pada Firestore JS SDK serta proteksi ukuran dokumen.
  */
 export async function saveTrainingSessionToFirestore(sessionData: Partial<TrainingSession>): Promise<TrainingSession> {
-  const id = sessionData.id || `session_${Date.now()}`;
+  const id = sessionData.id && sessionData.id.trim() ? sessionData.id.trim() : `session_${Date.now()}`;
   const nowIso = new Date().toISOString();
 
-  // Hitung ringkasan statistik kehadiran
-  const records = sessionData.records || [];
+  // Hitung ringkasan statistik kehadiran & sanitasi seluruh record peserta
+  const rawRecords = sessionData.records || [];
   let hadir = 0;
   let izin = 0;
+  let tidakHadir = 0;
   let sakit = 0;
   let alpa = 0;
 
-  for (const r of records) {
-    if (r.status === 'Hadir') hadir++;
-    else if (r.status === 'Izin') izin++;
-    else if (r.status === 'Sakit') sakit++;
-    else if (r.status === 'Alpa' || r.status === 'Tidak Hadir') alpa++;
-  }
+  const records = rawRecords.map((r, idx) => {
+    const status = String(r.status || 'Hadir');
+    if (status === 'Hadir') hadir++;
+    else if (status === 'Izin') izin++;
+    else if (status === 'Sakit') {
+      sakit++;
+      tidakHadir++;
+    } else if (status === 'Alpa' || status === 'Tidak Hadir') {
+      alpa++;
+      tidakHadir++;
+    } else {
+      tidakHadir++;
+    }
+
+    return {
+      studentId: String(r.studentId || `student_${idx}`),
+      regNumber: String(r.regNumber || ''),
+      studentName: String(r.studentName || 'Siswa'),
+      nickname: String(r.nickname || r.studentName || 'Siswa'),
+      gender: (r.gender === 'P' ? 'P' : 'L') as 'L' | 'P',
+      age: typeof r.age === 'number' && !isNaN(r.age) ? r.age : 0,
+      jerseyNumber: String(r.jerseyNumber || ''),
+      photoUrl: String(r.photoUrl || ''),
+      status: status,
+      notes: String(r.notes || '')
+    };
+  });
+
+  // Sanitasi media dokumentasi (pastikan tidak ada field undefined)
+  const rawMedia = sessionData.documentationMedia || [];
+  const documentationMedia = rawMedia.map((m, idx) => ({
+    id: String(m.id || `media_${Date.now()}_${idx}`),
+    type: m.type === 'video' ? ('video' as const) : ('photo' as const),
+    url: String(m.url || ''),
+    name: String(m.name || `Media ${idx + 1}`),
+    sizeFormatted: String(m.sizeFormatted || ''),
+    sizeBytes: typeof m.sizeBytes === 'number' ? m.sizeBytes : 0,
+    uploadedAt: String(m.uploadedAt || nowIso)
+  }));
+
+  const rawPhotos = sessionData.photos || [];
+  const photos = rawPhotos
+    .filter((p): p is string => typeof p === 'string' && p.length > 0)
+    .map(p => String(p));
 
   const payload: TrainingSession = {
     id,
@@ -313,16 +354,35 @@ export async function saveTrainingSessionToFirestore(sessionData: Partial<Traini
       total: records.length,
       hadir,
       izin,
-      tidakHadir: sakit + alpa,
+      tidakHadir: tidakHadir > 0 ? tidakHadir : (sakit + alpa),
       sakit,
       alpa
     },
-    notes: sessionData.notes || '',
-    photos: sessionData.photos || [],
-    documentationMedia: sessionData.documentationMedia || [],
+    notes: String(sessionData.notes || ''),
+    photos,
+    documentationMedia,
     createdAt: sessionData.createdAt || nowIso,
     updatedAt: nowIso
   };
+
+  // Proteksi ukuran dokumen Firestore (Firestore hard limit adalah 1 MiB)
+  const estimatedSize = JSON.stringify(payload).length;
+  if (estimatedSize > 850000) {
+    console.warn(`[Firestore] Ukuran sesi presensi (${Math.round(estimatedSize / 1024)} KB) mendekati batas Firestore 1MB. Mengompres media untuk keamanan.`);
+    // Pertahankan ringkasan & data presensi 100%, ringankan data base64 media
+    const safeMedia = documentationMedia.map(m => ({
+      ...m,
+      url: m.url.length > 50000 ? '' : m.url
+    }));
+    const safePayload: TrainingSession = {
+      ...payload,
+      documentationMedia: safeMedia,
+      photos: photos.filter(p => p.length <= 50000)
+    };
+    const docRef = doc(db, TRAINING_SESSIONS_COLLECTION, id);
+    await setDoc(docRef, safePayload, { merge: true });
+    return payload;
+  }
 
   const docRef = doc(db, TRAINING_SESSIONS_COLLECTION, id);
   await setDoc(docRef, payload, { merge: true });

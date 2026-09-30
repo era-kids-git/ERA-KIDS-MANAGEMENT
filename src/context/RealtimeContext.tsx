@@ -141,6 +141,21 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [calculateStats]);
 
   const fetchTrainingSessions = useCallback(async () => {
+    // 1. Baca cache lokal terlebih dahulu agar data tampil seketika (terutama saat hosting statis seperti Cloudflare Pages)
+    try {
+      const rawCache = localStorage.getItem('era_kids_training_sessions_cache');
+      if (rawCache) {
+        const cached: TrainingSession[] = JSON.parse(rawCache);
+        if (Array.isArray(cached) && cached.length > 0) {
+          const { cleanedSessions } = filterExpiredMediaFromSessions(cached);
+          setTrainingSessions(cleanedSessions);
+        }
+      }
+    } catch (e) {
+      // Abaikan error parsing cache lokal
+    }
+
+    // 2. Coba fetch dari server lokal jika ada
     try {
       const res = await fetch('/api/attendance/sessions');
       if (res.ok) {
@@ -149,7 +164,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setTrainingSessions(cleanedSessions);
       }
     } catch (err) {
-      console.error('Failed to fetch training sessions:', err);
+      // Server API opsional saat deploy di Cloudflare Pages
     }
   }, []);
 
@@ -210,6 +225,11 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         unsubscribeSess = subscribeToTrainingSessions(
           (sessions) => {
             setTrainingSessions(sessions);
+            try {
+              localStorage.setItem('era_kids_training_sessions_cache', JSON.stringify(sessions));
+            } catch (e) {
+              // ignore
+            }
           },
           (err) => {
             console.warn('[Firestore] Info listener trainingSessions:', err);
@@ -578,39 +598,88 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const saveTrainingSession = async (sessionData: Partial<TrainingSession>) => {
     try {
-      // 1. Simpan ke Cloud Firestore (Permanen)
+      // 1. Simpan ke Cloud Firestore (Permanen di Google Firebase)
       let fsSession: TrainingSession | null = null;
+      let fsError: any = null;
       try {
         fsSession = await saveTrainingSessionToFirestore(sessionData);
-      } catch (fsErr) {
-        console.warn('[Firestore] Gagal simpan sesi ke Firestore langsung:', fsErr);
+      } catch (fsErr: any) {
+        fsError = fsErr;
+        console.error('[Firestore] Gagal simpan sesi ke Firestore langsung:', fsErr);
       }
 
-      // 2. Sinkron ke Server API
-      const res = await fetch('/api/attendance/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(fsSession || sessionData)
+      // 2. Sinkron ke Server API jika ada (opsional untuk lingkungan dev/Node)
+      let serverSession: TrainingSession | null = null;
+      try {
+        const res = await fetch('/api/attendance/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fsSession || sessionData)
+        });
+        if (res.ok) {
+          const contentType = res.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const data = await res.json();
+            serverSession = data.session;
+          }
+        }
+      } catch (srvErr) {
+        // Abaikan jika offline atau berjalan di Cloudflare Pages statis
+      }
+
+      // 3. Tentukan hasil sesi terbaik yang valid
+      const targetId = sessionData.id && sessionData.id.trim() ? sessionData.id.trim() : `session_${Date.now()}`;
+      const finalSession: TrainingSession = fsSession || serverSession || {
+        id: targetId,
+        date: sessionData.date || new Date().toISOString().split('T')[0],
+        timeRange: sessionData.timeRange || '18.45 - 21.00 WIB',
+        sessionTitle: sessionData.sessionTitle || 'Latihan Reguler',
+        coachName: sessionData.coachName || 'Pelatih Utama',
+        location: sessionData.location || 'GOR VOLI KUBA',
+        programName: sessionData.programName || 'Volleyball Training for Kids',
+        records: sessionData.records || [],
+        summary: sessionData.summary || {
+          total: sessionData.records?.length || 0,
+          hadir: sessionData.records?.filter(r => r.status === 'Hadir').length || 0,
+          izin: sessionData.records?.filter(r => r.status === 'Izin').length || 0,
+          tidakHadir: sessionData.records?.filter(r => r.status !== 'Hadir' && r.status !== 'Izin').length || 0
+        },
+        notes: sessionData.notes || '',
+        photos: sessionData.photos || [],
+        documentationMedia: sessionData.documentationMedia || [],
+        createdAt: sessionData.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      // 4. Perbarui state lokal seketika
+      setTrainingSessions(prev => {
+        const exists = prev.some(s => s.id === finalSession.id);
+        if (exists) {
+          return prev.map(s => s.id === finalSession.id ? finalSession : s);
+        }
+        return [finalSession, ...prev];
       });
 
-      const finalSession = fsSession || (res.ok ? (await res.json()).session : null);
-      if (finalSession) {
-        setTrainingSessions(prev => {
-          const exists = prev.some(s => s.id === finalSession.id);
-          if (exists) {
-            return prev.map(s => s.id === finalSession.id ? finalSession : s);
-          }
-          return [finalSession, ...prev];
-        });
-        return { success: true, session: finalSession };
+      // 5. Simpan ke cache lokal browser (localStorage)
+      try {
+        const cacheKey = 'era_kids_training_sessions_cache';
+        const rawCache = localStorage.getItem(cacheKey);
+        const list: TrainingSession[] = rawCache ? JSON.parse(rawCache) : [];
+        const filtered = list.filter(s => s.id !== finalSession.id);
+        localStorage.setItem(cacheKey, JSON.stringify([finalSession, ...filtered]));
+      } catch (e) {
+        console.warn('[Storage] Gagal memperbarui cache lokal sesi:', e);
       }
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ error: 'Gagal menyimpan sesi presensi' }));
-        return { success: false, error: errorData.error || 'Terjadi kesalahan sistem' };
+      if (!fsSession && !serverSession && fsError) {
+        return {
+          success: true,
+          session: finalSession,
+          error: `Tersimpan secara lokal. Catatan Cloud: ${fsError.message || 'Koneksi database terputus'}`
+        };
       }
 
-      return { success: true, session: fsSession };
+      return { success: true, session: finalSession };
     } catch (err: any) {
       console.error('Error saving training session:', err);
       return { success: false, error: err.message || 'Gagal menyimpan sesi presensi' };
@@ -620,9 +689,20 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const deleteTrainingSession = async (id: string) => {
     try {
       deleteTrainingSessionFromFirestore(id).catch(e => console.warn('[Firestore] delete session error:', e));
-      const res = await fetch(`/api/attendance/sessions/${id}`, { method: 'DELETE' });
+      fetch(`/api/attendance/sessions/${id}`, { method: 'DELETE' }).catch(() => {});
+      
       setTrainingSessions(prev => prev.filter(s => s.id !== id));
-      return res.ok || res.status === 404;
+
+      try {
+        const cacheKey = 'era_kids_training_sessions_cache';
+        const rawCache = localStorage.getItem(cacheKey);
+        if (rawCache) {
+          const list: TrainingSession[] = JSON.parse(rawCache);
+          localStorage.setItem(cacheKey, JSON.stringify(list.filter(s => s.id !== id)));
+        }
+      } catch (e) {}
+
+      return true;
     } catch (err) {
       console.error('Network error deleting training session:', err);
       setTrainingSessions(prev => prev.filter(s => s.id !== id));

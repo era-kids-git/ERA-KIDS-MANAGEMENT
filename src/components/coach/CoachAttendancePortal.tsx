@@ -98,7 +98,7 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
 
   // UI helpers
   const [isSaving, setIsSaving] = useState(false);
-  const [saveToast, setSaveToast] = useState<string | null>(null);
+  const [saveToast, setSaveToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [expandedNotesStudentId, setExpandedNotesStudentId] = useState<string | null>(null);
   const [viewingHistorySession, setViewingHistorySession] = useState<TrainingSession | null>(null);
@@ -378,9 +378,9 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
     showNotification('Seluruh siswa ditandai IZIN');
   };
 
-  const showNotification = (msg: string) => {
-    setSaveToast(msg);
-    setTimeout(() => setSaveToast(null), 3000);
+  const showNotification = (msg: string, type: 'success' | 'error' = 'success') => {
+    setSaveToast({ message: msg, type });
+    setTimeout(() => setSaveToast(null), 3500);
   };
 
   // Save session to backend
@@ -392,19 +392,19 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
 
     setIsSaving(true);
 
-    const records: StudentAttendanceRecord[] = eligibleStudents.map(student => {
+    const records: StudentAttendanceRecord[] = eligibleStudents.map((student, idx) => {
       const entry = attendanceMap[student.id] || { status: 'Hadir', notes: '' };
       return {
-        studentId: student.id,
-        regNumber: student.regNumber,
-        studentName: student.studentName,
-        nickname: student.nickname,
-        gender: student.gender,
-        age: student.age,
-        jerseyNumber: student.jerseyNumber,
-        photoUrl: student.photoUrl,
-        status: entry.status,
-        notes: entry.notes
+        studentId: String(student.id || `student_${idx}`),
+        regNumber: String(student.regNumber || ''),
+        studentName: String(student.studentName || 'Siswa'),
+        nickname: String(student.nickname || student.studentName || 'Siswa'),
+        gender: (student.gender === 'P' ? 'P' : 'L') as 'L' | 'P',
+        age: typeof student.age === 'number' && !isNaN(student.age) ? student.age : 0,
+        jerseyNumber: String(student.jerseyNumber || ''),
+        photoUrl: String(student.photoUrl || ''),
+        status: String(entry.status || 'Hadir'),
+        notes: String(entry.notes || '')
       };
     });
 
@@ -417,9 +417,12 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
       location: sessionLocation,
       programName: "Volleyball Training for Kids",
       records,
-      notes: sessionNotes,
-      documentationMedia: sessionMedia,
-      photos: sessionMedia.filter(m => m.type === 'photo').map(m => m.url)
+      notes: sessionNotes || '',
+      documentationMedia: sessionMedia || [],
+      photos: (sessionMedia || [])
+        .filter(m => m.type === 'photo')
+        .map(m => m.url)
+        .filter((u): u is string => typeof u === 'string' && u.length > 0)
     };
 
     const res = await saveTrainingSession(payload);
@@ -427,9 +430,9 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
 
     if (res.success && res.session) {
       setEditingSessionId(res.session.id);
-      showNotification(`Presensi sesi latihan berhasil disimpan! (${currentStats.hadir} Hadir / ${currentStats.total} Siswa)`);
+      showNotification(`Presensi sesi latihan berhasil disimpan! (${currentStats.hadir} Hadir / ${currentStats.total} Siswa)`, 'success');
     } else {
-      showNotification(res.error || 'Gagal menyimpan presensi');
+      showNotification(res.error || 'Gagal menyimpan presensi', 'error');
     }
   };
 
@@ -649,10 +652,18 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
             initial={{ opacity: 0, y: -20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            className="fixed top-16 right-4 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 border border-slate-700 text-xs sm:text-sm font-semibold"
+            className={`fixed top-16 right-4 z-50 px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 border text-xs sm:text-sm font-semibold max-w-sm ${
+              saveToast.type === 'error'
+                ? 'bg-rose-950 text-rose-100 border-rose-700 shadow-rose-950/50'
+                : 'bg-slate-900 text-white border-slate-700 shadow-slate-950/50'
+            }`}
           >
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>{saveToast}</span>
+            {saveToast.type === 'error' ? (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            )}
+            <span className="leading-tight">{saveToast.message}</span>
           </motion.div>
         )}
       </AnimatePresence>
