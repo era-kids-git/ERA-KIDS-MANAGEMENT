@@ -372,29 +372,55 @@ export async function saveTrainingSessionToFirestore(sessionData: Partial<Traini
   };
 
   // Proteksi ukuran dokumen Firestore (Firestore hard limit adalah 1 MiB / 1,048,576 bytes)
-  // Jika media terlalu banyak, kita simpan sebanyak mungkin foto utuh hingga batas 800 KB,
-  // tanpa pernah mengosongkan URL foto menjadi ""!
-  const baseSize = JSON.stringify({ ...payload, documentationMedia: [] }).length;
-  let finalMedia = documentationMedia;
-  let estimatedSize = baseSize + JSON.stringify(finalMedia).length;
+  // 1. Jangan pernah duplikasi data base64 di payload.photos jika sudah ada di documentationMedia
+  payload.photos = [];
 
-  if (estimatedSize > 850000) {
-    console.warn(`[Firestore] Dokumen presensi (${Math.round(estimatedSize / 1024)} KB) mendekati batas 1MB. Mempertahankan foto terbaik yang muat di Firestore.`);
-    const trimmedMedia: MediaDocumentation[] = [];
-    let currentLength = baseSize;
-    for (const m of documentationMedia) {
-      const itemLen = JSON.stringify(m).length;
-      if (currentLength + itemLen < 800000) {
-        trimmedMedia.push(m);
-        currentLength += itemLen;
-      } else {
-        break;
-      }
+  const baseSize = JSON.stringify({ ...payload, documentationMedia: [] }).length;
+  const MAX_SAFE_FIRESTORE_BYTES = 850000; // 850 KB batas aman
+  const MAX_SINGLE_MEDIA_BYTES = 350000;   // 350 KB per media item
+
+  const safeMedia: MediaDocumentation[] = [];
+  let currentBytes = baseSize;
+
+  for (const m of documentationMedia) {
+    const itemBytes = JSON.stringify(m).length;
+
+    // Jika ada satu media individu yang berukuran terlalu besar (misal video 1-2MB),
+    // simpan informasinya di dokumen tanpa string base64 raksasanya agar dokumen Firestore TIDAK JEBOL
+    if (itemBytes > MAX_SINGLE_MEDIA_BYTES) {
+      console.warn(`[Firestore] Media "${m.name}" (${Math.round(itemBytes / 1024)} KB) melebihi batas per-item Firestore (350 KB). Menyimpan metadata file.`);
+      safeMedia.push({
+        ...m,
+        url: '', // kosongkan data base64 raksasa
+        caption: (m.caption ? m.caption + ' ' : '') + '(File terlalu besar untuk database cloud, gunakan foto di bawah 300KB)'
+      });
+      continue;
     }
-    finalMedia = trimmedMedia.length > 0 ? trimmedMedia : documentationMedia.slice(0, 3);
+
+    if (currentBytes + itemBytes < MAX_SAFE_FIRESTORE_BYTES) {
+      safeMedia.push(m);
+      currentBytes += itemBytes;
+    } else {
+      console.warn(`[Firestore] Batas total dokumen 850KB tercapai. Media "${m.name}" disimpan sebagai info.`);
+      safeMedia.push({
+        ...m,
+        url: '',
+        caption: (m.caption ? m.caption + ' ' : '') + '(Melebihi kuota aman dokumen 850KB)'
+      });
+    }
   }
 
-  payload.documentationMedia = finalMedia;
+  payload.documentationMedia = safeMedia;
+
+  // Verifikasi final mutlak: jika ukuran serialisasi JSON masih mendekati 950,000 bytes,
+  // pangkas media secara darurat sehingga setDoc() DIJAMIN 100% TIDAK PERNAH DITOLAK FIRESTORE!
+  let finalJsonLen = JSON.stringify(payload).length;
+  if (finalJsonLen > 950000) {
+    console.warn(`[Firestore] Dokumen akhir (${finalJsonLen} bytes) masih melebihi batas aman. Mengamankan data presensi.`);
+    while (payload.documentationMedia.length > 0 && JSON.stringify(payload).length > 950000) {
+      payload.documentationMedia.pop();
+    }
+  }
 
   const docRef = doc(db, TRAINING_SESSIONS_COLLECTION, id);
   await setDoc(docRef, payload, { merge: true });

@@ -113,6 +113,7 @@ export interface MediaDocumentation {
   sizeFormatted: string;
   sizeBytes?: number;
   uploadedAt: string;
+  caption?: string;
 }
 
 export interface TrainingSession {

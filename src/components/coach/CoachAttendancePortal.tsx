@@ -115,7 +115,7 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
         const img = new Image();
         img.src = event.target?.result as string;
         img.onload = () => {
-          const MAX_DIM = 850;
+          const MAX_DIM = 800;
           let width = img.width;
           let height = img.height;
 
@@ -145,7 +145,7 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
           }
 
           ctx.drawImage(img, 0, 0, width, height);
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.65);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.60);
           const byteLength = Math.round((compressedDataUrl.length * 3) / 4);
           const sizeKb = Math.round(byteLength / 1024);
 
@@ -165,13 +165,13 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
     });
   };
 
-  // Video processing with size limit (max 800KB for cloud database storage)
+  // Video processing with size limit (max 350KB for cloud database storage)
   const processVideo = (file: File): Promise<MediaDocumentation> => {
     return new Promise((resolve, reject) => {
-      const MAX_MB = 0.8;
+      const MAX_MB = 0.35;
       if (file.size > MAX_MB * 1024 * 1024) {
         const actualMb = (file.size / (1024 * 1024)).toFixed(1);
-        reject(new Error(`Ukuran video (${actualMb} MB) melebihi batas simpan database cloud (maksimal 800 KB). Disarankan menggunakan foto dokumentasi latihan agar langsung tampil di galeri orang tua.`));
+        reject(new Error(`Ukuran video (${actualMb} MB) melebihi batas database cloud (maksimal 350 KB). Disarankan menggunakan Foto Dokumentasi latihan yang otomatis tajam & ringan di galeri orang tua.`));
         return;
       }
 
@@ -419,10 +419,7 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
       records,
       notes: sessionNotes || '',
       documentationMedia: sessionMedia || [],
-      photos: (sessionMedia || [])
-        .filter(m => m.type === 'photo')
-        .map(m => m.url)
-        .filter((u): u is string => typeof u === 'string' && u.length > 0)
+      photos: []
     };
 
     const res = await saveTrainingSession(payload);
