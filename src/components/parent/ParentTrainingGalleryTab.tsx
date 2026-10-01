@@ -25,6 +25,7 @@ import {
   MEDIA_RETENTION_DAYS 
 } from '../../utils/mediaRetention';
 import { EraKidsLogo } from '../common/EraKidsLogo';
+import { getSessionMediaFromFirestore, subscribeToSessionMedia } from '../../lib/firestoreService.ts';
 
 interface ParentTrainingGalleryTabProps {
   sessions: TrainingSession[];
@@ -43,6 +44,9 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
     return sessions.length > 0 ? sessions[0].id : '';
   });
 
+  // State untuk menyimpan media Full HD asli dari subcollection Firestore
+  const [subcollectionMediaMap, setSubcollectionMediaMap] = useState<Record<string, MediaDocumentation[]>>({});
+
   // Synchronize selectedSessionId whenever sessions list arrives from Firestore
   React.useEffect(() => {
     if (sessions.length > 0) {
@@ -54,6 +58,23 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
       }
     }
   }, [sessions, initialSessionId, selectedSessionId]);
+
+  // Real-time synchronization: Dengarkan perubahan subcollection media secara real-time!
+  // Setiap kali pelatih mengedit, menambah, atau menghapus foto, galeri orang tua langsung sinkron seketika
+  React.useEffect(() => {
+    if (!selectedSessionId) return;
+
+    const unsubscribe = subscribeToSessionMedia(selectedSessionId, (hdMedia) => {
+      setSubcollectionMediaMap(prev => ({
+        ...prev,
+        [selectedSessionId]: hdMedia
+      }));
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [selectedSessionId]);
 
   // Lightbox preview modal
   const [previewMedia, setPreviewMedia] = useState<MediaDocumentation | null>(null);
@@ -112,9 +133,18 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
     }
   };
 
-  // Compile media items from session
+  // Compile media items from session (prioritaskan resolusi Full HD dari subcollection)
   const mediaItems: MediaDocumentation[] = useMemo(() => {
     if (!currentSession) return [];
+
+    // 1. Jika listener subcollection real-time sudah aktif untuk sesi ini, gunakan hasilnya secara presisi
+    // (Termasuk jika pelatih menghapus semua foto sehingga menghasilkan array kosong [])
+    if (subcollectionMediaMap[currentSession.id] !== undefined) {
+      const hdSub = subcollectionMediaMap[currentSession.id];
+      return hdSub.filter(m => m && m.url && typeof m.url === 'string' && m.url.trim().length > 0);
+    }
+
+    // 2. Fallback awal sebelum listener subcollection selesai menginisialisasi
     const list: MediaDocumentation[] = [];
     if (currentSession.documentationMedia && currentSession.documentationMedia.length > 0) {
       currentSession.documentationMedia.forEach(m => {
@@ -131,14 +161,24 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
             type: 'photo' as const,
             url: p,
             name: `Foto Latihan #${idx + 1}`,
-            sizeFormatted: 'Standar HD',
+            sizeFormatted: 'Full HD',
             uploadedAt: currentSession.createdAt || new Date().toISOString()
           });
         }
       });
     }
     return list;
-  }, [currentSession]);
+  }, [currentSession, subcollectionMediaMap]);
+
+  // Tutup modal lightbox secara otomatis jika foto yang sedang dipratinjau dihapus oleh pelatih
+  React.useEffect(() => {
+    if (previewMedia) {
+      const stillExists = mediaItems.some(m => m.id === previewMedia.id || m.url === previewMedia.url);
+      if (!stillExists) {
+        setPreviewMedia(null);
+      }
+    }
+  }, [mediaItems, previewMedia]);
 
   // Generate distinct filename with photo / video number so each file is uniquely numbered
   const getDownloadFileName = (media: MediaDocumentation, index?: number): string => {
@@ -443,9 +483,10 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
                         )}
                       </div>
 
-                      {/* Top Label */}
-                      <span className="absolute top-1 left-1 px-1 py-0.2 rounded bg-slate-950/75 text-white text-[8px] sm:text-[9px] font-bold font-mono backdrop-blur-xs pointer-events-none z-10">
-                        {isVideo ? `VIDEO #${idx + 1}` : `#${idx + 1}`}
+                      {/* Top Label with HD Badge */}
+                      <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-slate-950/85 text-amber-300 text-[8px] sm:text-[9.5px] font-black font-mono backdrop-blur-xs pointer-events-none z-10 border border-amber-400/30 flex items-center gap-0.5">
+                        <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+                        {isVideo ? `VIDEO #${idx + 1}` : `HD #${idx + 1}`}
                       </span>
 
                       {/* Zoom Trigger for Media */}
@@ -464,7 +505,7 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
                       {/* Bottom Direct Download Overlay - Compact */}
                       <div className="relative z-10 p-1 sm:p-1.5 flex items-center justify-between gap-1 bg-gradient-to-t from-black/85 via-black/45 to-transparent pointer-events-auto">
                         <span className="text-[8px] sm:text-[9px] text-white/90 font-medium truncate drop-shadow-xs max-w-[55%]">
-                          {media.sizeFormatted || 'HD'}
+                          {media.sizeFormatted || 'Full HD'}
                         </span>
 
                         <button
@@ -477,7 +518,7 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
                           title={isVideo ? `Unduh video #${idx + 1} ke HP` : `Unduh foto #${idx + 1} ke HP`}
                         >
                           <Download className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
-                          <span className="hidden min-[400px]:inline">Unduh</span>
+                          <span className="hidden min-[400px]:inline">Unduh HD</span>
                         </button>
                       </div>
                     </div>
@@ -492,16 +533,19 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
       {/* 4. LIGHTBOX / ZOOM PHOTO & VIDEO MODAL */}
       {previewMedia && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-slate-950/90 backdrop-blur-xs overflow-x-hidden"
+          className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-slate-950/92 backdrop-blur-xs overflow-x-hidden"
           onClick={() => setPreviewMedia(null)}
         >
           <div 
-            className="bg-slate-900 rounded-none sm:rounded-2xl max-w-full sm:max-w-3xl w-full h-full sm:h-auto overflow-hidden shadow-2xl border-0 sm:border border-slate-700 flex flex-col max-h-screen sm:max-h-[92vh]"
+            className="bg-slate-900 rounded-none sm:rounded-2xl max-w-full sm:max-w-5xl w-full h-full sm:h-auto overflow-hidden shadow-2xl border-0 sm:border border-slate-700 flex flex-col max-h-screen sm:max-h-[94vh]"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header: Informasi Berkas */}
-            <div className="px-4 py-3 bg-slate-950 text-white flex items-center justify-between border-b border-slate-800">
+            {/* Header: Informasi Berkas & Badge HD */}
+            <div className="px-4 py-3 bg-slate-950 text-white flex items-center justify-between border-b border-slate-800 gap-2">
               <div className="flex items-center gap-2 min-w-0">
+                <span className="px-2 py-0.5 rounded bg-emerald-950/90 text-emerald-300 text-[10px] font-black uppercase tracking-wider font-mono border border-emerald-500/50 flex items-center gap-1 shrink-0">
+                  <Sparkles className="w-3 h-3 text-emerald-400" /> Full HD 1080p
+                </span>
                 <span className="px-2 py-0.5 rounded bg-indigo-900/60 text-indigo-300 text-[10px] font-bold uppercase tracking-wider font-mono border border-indigo-700/50 shrink-0">
                   {previewMedia.type === 'video' ? 'Video' : 'Foto'} #{previewIndex + 1}
                 </span>
@@ -515,12 +559,12 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
             </div>
 
             {/* Media Body dengan Tombol Navigasi Prev/Next */}
-            <div className="relative p-2 sm:p-4 flex items-center justify-center bg-black/60 overflow-hidden flex-1 min-h-[240px]">
+            <div className="relative p-2 sm:p-4 flex items-center justify-center bg-black/80 overflow-hidden flex-1 min-h-[260px]">
               {previewIndex > 0 && (
                 <button
                   type="button"
                   onClick={handlePrevMedia}
-                  className="absolute left-2 sm:left-4 z-20 p-2 rounded-full bg-slate-900/80 hover:bg-slate-800 text-white shadow-lg backdrop-blur-xs border border-slate-700 transition-all active:scale-95"
+                  className="absolute left-2 sm:left-4 z-20 p-2.5 rounded-full bg-slate-900/85 hover:bg-slate-800 text-white shadow-lg backdrop-blur-xs border border-slate-700 transition-all active:scale-95"
                   title="Foto / Video Sebelumnya"
                 >
                   <ChevronLeft className="w-5 h-5" />
@@ -533,13 +577,14 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
                   controls
                   autoPlay
                   playsInline
-                  className="max-h-[62vh] w-auto max-w-full rounded-lg shadow-xl"
+                  className="max-h-[70vh] sm:max-h-[76vh] w-auto max-w-full rounded-lg shadow-xl"
                 />
               ) : (
                 <img
                   src={previewMedia.url}
                   alt={previewMedia.name}
-                  className="max-h-[62vh] w-auto max-w-full object-contain rounded-lg shadow-xl"
+                  className="max-h-[70vh] sm:max-h-[76vh] w-auto max-w-full object-contain rounded-lg shadow-xl select-none"
+                  style={{ imageRendering: 'auto' }}
                 />
               )}
 
@@ -547,7 +592,7 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
                 <button
                   type="button"
                   onClick={handleNextMedia}
-                  className="absolute right-2 sm:right-4 z-20 p-2 rounded-full bg-slate-900/80 hover:bg-slate-800 text-white shadow-lg backdrop-blur-xs border border-slate-700 transition-all active:scale-95"
+                  className="absolute right-2 sm:right-4 z-20 p-2.5 rounded-full bg-slate-900/85 hover:bg-slate-800 text-white shadow-lg backdrop-blur-xs border border-slate-700 transition-all active:scale-95"
                   title="Foto / Video Selanjutnya"
                 >
                   <ChevronRight className="w-5 h-5" />
@@ -575,7 +620,7 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
                 </span>
                 <span className="text-slate-500"> dari {mediaItems.length}</span>
                 {previewMedia.sizeFormatted && (
-                  <span className="text-slate-500 ml-1.5 hidden sm:inline">
+                  <span className="text-emerald-400 font-medium ml-1.5 hidden sm:inline">
                     • {previewMedia.sizeFormatted}
                   </span>
                 )}
@@ -586,13 +631,13 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
                 type="button"
                 onClick={() => handleDownloadMedia(previewMedia.url, getDownloadFileName(previewMedia, previewIndex))}
                 className="order-3 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs sm:text-sm font-bold rounded-xl flex items-center justify-center gap-2 shadow-md transition-all shrink-0"
-                title="Unduh berkas ini ke perangkat dengan nomor foto"
+                title="Unduh berkas Full HD ini ke perangkat dengan nomor foto"
               >
                 <Download className="w-4 h-4" />
                 <span>
                   {previewMedia.type === 'video' 
-                    ? `Unduh Video #${previewIndex + 1}` 
-                    : `Unduh Foto #${previewIndex + 1}`}
+                    ? `Unduh Video HD #${previewIndex + 1}` 
+                    : `Unduh Foto HD Asli #${previewIndex + 1}`}
                 </span>
               </button>
             </div>

@@ -37,6 +37,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useRealtime } from '../../context/RealtimeContext.tsx';
 import { AttendanceStatus, StudentAttendanceRecord, TrainingSession, StudentRegistration, MediaDocumentation } from '../../types.ts';
 import { getMediaRemainingDays, isMediaExpired, MEDIA_RETENTION_DAYS } from '../../utils/mediaRetention.ts';
+import { getSessionMediaFromFirestore } from '../../lib/firestoreService.ts';
 import { TrainingReportModal } from './TrainingReportModal.tsx';
 import { EraKidsLogo } from '../common/EraKidsLogo.tsx';
 
@@ -115,7 +116,8 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
         const img = new Image();
         img.src = event.target?.result as string;
         img.onload = () => {
-          const MAX_DIM = 800;
+          // Resolusi Full HD+ (1600px) agar jernih, tajam, dan tidak pecah di layar smartphone & monitor
+          const MAX_DIM = 1600;
           let width = img.width;
           let height = img.height;
 
@@ -144,8 +146,13 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
             return;
           }
 
+          // Aktifkan smoothing berkualitas tinggi untuk mencegah aliasing/pecah
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(img, 0, 0, width, height);
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.60);
+
+          // Kualitas tinggi 0.85 (85%) untuk foto jernih, tajam, detail wajah & bola jelas
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
           const byteLength = Math.round((compressedDataUrl.length * 3) / 4);
           const sizeKb = Math.round(byteLength / 1024);
 
@@ -154,7 +161,7 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
             type: 'photo',
             url: compressedDataUrl,
             name: file.name,
-            sizeFormatted: sizeKb > 1024 ? `${(sizeKb / 1024).toFixed(1)} MB` : `${sizeKb} KB`,
+            sizeFormatted: sizeKb > 1024 ? `${(sizeKb / 1024).toFixed(1)} MB` : `${sizeKb} KB (HD)`,
             sizeBytes: byteLength,
             uploadedAt: new Date().toISOString()
           });
@@ -461,6 +468,15 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
       });
     }
     setSessionMedia(existingMedia);
+
+    // Muat foto Full HD lengkap dari subcollection Firestore jika tersedia
+    getSessionMediaFromFirestore(session.id)
+      .then((hdList) => {
+        if (hdList && hdList.length > 0) {
+          setSessionMedia(hdList);
+        }
+      })
+      .catch((e) => console.warn('Info load session media for edit:', e));
 
     const newMap: Record<string, { status: AttendanceStatus; notes: string }> = {};
     session.records.forEach(rec => {

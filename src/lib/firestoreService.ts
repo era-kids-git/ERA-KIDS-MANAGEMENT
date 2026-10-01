@@ -412,6 +412,40 @@ export async function saveTrainingSessionToFirestore(sessionData: Partial<Traini
 
   payload.documentationMedia = safeMedia;
 
+  // Sinkronisasi subcollection media Full HD secara presisi:
+  // Hapus foto yang dibuang oleh pelatih, dan simpan/perbarui foto baru atau yang diedit
+  try {
+    const mediaColRef = collection(db, TRAINING_SESSIONS_COLLECTION, id, 'media');
+    const existingSnap = await getDocs(mediaColRef);
+    const newMediaIds = new Set(documentationMedia.map(m => m.id));
+
+    // 1. Hapus berkas foto yang telah dihapus oleh pelatih dari Firestore subcollection
+    const deletePromises: Promise<any>[] = [];
+    existingSnap.forEach(d => {
+      if (!newMediaIds.has(d.id)) {
+        deletePromises.push(deleteDoc(d.ref));
+      }
+    });
+    if (deletePromises.length > 0) {
+      await Promise.all(deletePromises);
+      console.log(`[Firestore] ${deletePromises.length} foto yang dihapus pelatih berhasil dibersihkan dari subcollection.`);
+    }
+
+    // 2. Simpan atau perbarui berkas foto aktif (resolusi Full HD)
+    if (documentationMedia.length > 0) {
+      await Promise.all(
+        documentationMedia.map(async (m) => {
+          if (m.url && m.url.trim().length > 0) {
+            await setDoc(doc(mediaColRef, m.id), m, { merge: true });
+          }
+        })
+      );
+      console.log(`[Firestore] ${documentationMedia.length} foto HD aktif disinkronkan ke subcollection.`);
+    }
+  } catch (subErr) {
+    console.warn('[Firestore] Info sinkronisasi media subcollection:', subErr);
+  }
+
   // Verifikasi final mutlak: jika ukuran serialisasi JSON masih mendekati 950,000 bytes,
   // pangkas media secara darurat sehingga setDoc() DIJAMIN 100% TIDAK PERNAH DITOLAK FIRESTORE!
   let finalJsonLen = JSON.stringify(payload).length;
@@ -428,11 +462,71 @@ export async function saveTrainingSessionToFirestore(sessionData: Partial<Traini
 }
 
 /**
+ * Listener real-time untuk subcollection media sesi latihan
+ * Otomatis memperbarui foto saat pelatih menambah, mengedit, atau menghapus foto
+ */
+export function subscribeToSessionMedia(
+  sessionId: string,
+  onData: (media: MediaDocumentation[]) => void,
+  onError?: (err: Error) => void
+) {
+  const mediaColRef = collection(db, TRAINING_SESSIONS_COLLECTION, sessionId, 'media');
+  return onSnapshot(
+    mediaColRef,
+    (snapshot) => {
+      const list: MediaDocumentation[] = [];
+      snapshot.forEach((docSnap) => {
+        const item = docSnap.data() as MediaDocumentation;
+        if (item && item.url && item.url.trim().length > 0) {
+          list.push(item);
+        }
+      });
+      list.sort((a, b) => new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime());
+      onData(list);
+    },
+    (err) => {
+      console.warn(`[Firestore] Error subscribeToSessionMedia for ${sessionId}:`, err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+/**
+ * Ambil daftar media dokumentasi HD lengkap dari subcollection sesi
+ */
+export async function getSessionMediaFromFirestore(sessionId: string): Promise<MediaDocumentation[]> {
+  try {
+    const mediaColRef = collection(db, TRAINING_SESSIONS_COLLECTION, sessionId, 'media');
+    const snap = await getDocs(mediaColRef);
+    const list: MediaDocumentation[] = [];
+    snap.forEach((docSnap) => {
+      const item = docSnap.data() as MediaDocumentation;
+      if (item && item.url && item.url.trim().length > 0) {
+        list.push(item);
+      }
+    });
+    return list;
+  } catch (err) {
+    console.warn('[Firestore] Gagal memuat media HD dari subcollection:', err);
+    return [];
+  }
+}
+
+/**
  * Hapus sesi latihan dari Firestore
  */
 export async function deleteTrainingSessionFromFirestore(id: string): Promise<void> {
-  const docRef = doc(db, TRAINING_SESSIONS_COLLECTION, id);
-  await deleteDoc(docRef);
+  try {
+    const mediaColRef = collection(db, TRAINING_SESSIONS_COLLECTION, id, 'media');
+    const mediaSnap = await getDocs(mediaColRef);
+    const batch = writeBatch(db);
+    mediaSnap.docs.forEach((d) => batch.delete(d.ref));
+    batch.delete(doc(db, TRAINING_SESSIONS_COLLECTION, id));
+    await batch.commit();
+  } catch {
+    const docRef = doc(db, TRAINING_SESSIONS_COLLECTION, id);
+    await deleteDoc(docRef);
+  }
 }
 
 /**
