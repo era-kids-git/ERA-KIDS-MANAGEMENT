@@ -9,7 +9,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { StudentRegistration, TrainingSession, WhatsAppNotification } from '../types';
+import { StudentRegistration, TrainingSession, WhatsAppNotification, MediaDocumentation } from '../types';
 import { INITIAL_SEED_REGISTRATIONS, INITIAL_SEED_TRAINING_SESSIONS } from '../data/initialData';
 import { filterExpiredMediaFromSessions, isMediaExpired } from '../utils/mediaRetention';
 import { getNextAvailableRegNumber, calculateAgeFromBirthDate } from '../utils/regNumber';
@@ -326,20 +326,26 @@ export async function saveTrainingSessionToFirestore(sessionData: Partial<Traini
 
   // Sanitasi media dokumentasi (pastikan tidak ada field undefined)
   const rawMedia = sessionData.documentationMedia || [];
-  const documentationMedia = rawMedia.map((m, idx) => ({
-    id: String(m.id || `media_${Date.now()}_${idx}`),
-    type: m.type === 'video' ? ('video' as const) : ('photo' as const),
-    url: String(m.url || ''),
-    name: String(m.name || `Media ${idx + 1}`),
-    sizeFormatted: String(m.sizeFormatted || ''),
-    sizeBytes: typeof m.sizeBytes === 'number' ? m.sizeBytes : 0,
-    uploadedAt: String(m.uploadedAt || nowIso)
-  }));
+  const documentationMedia: MediaDocumentation[] = rawMedia
+    .filter(m => m && m.url && typeof m.url === 'string' && m.url.trim().length > 0)
+    .map((m, idx) => ({
+      id: String(m.id || `media_${Date.now()}_${idx}`),
+      type: m.type === 'video' ? ('video' as const) : ('photo' as const),
+      url: String(m.url),
+      name: String(m.name || `Media ${idx + 1}`),
+      sizeFormatted: String(m.sizeFormatted || ''),
+      sizeBytes: typeof m.sizeBytes === 'number' ? m.sizeBytes : 0,
+      uploadedAt: String(m.uploadedAt || nowIso)
+    }));
 
+  // Jika documentationMedia sudah ada, jangan duplikasi data gambar base64 di field photos
+  // agar ukuran dokumen Firestore tetap sangat hemat dan tidak melebihi 1MB
   const rawPhotos = sessionData.photos || [];
-  const photos = rawPhotos
-    .filter((p): p is string => typeof p === 'string' && p.length > 0)
-    .map(p => String(p));
+  const photos = documentationMedia.length > 0
+    ? []
+    : rawPhotos
+        .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+        .map(p => String(p));
 
   const payload: TrainingSession = {
     id,
@@ -365,24 +371,30 @@ export async function saveTrainingSessionToFirestore(sessionData: Partial<Traini
     updatedAt: nowIso
   };
 
-  // Proteksi ukuran dokumen Firestore (Firestore hard limit adalah 1 MiB)
-  const estimatedSize = JSON.stringify(payload).length;
+  // Proteksi ukuran dokumen Firestore (Firestore hard limit adalah 1 MiB / 1,048,576 bytes)
+  // Jika media terlalu banyak, kita simpan sebanyak mungkin foto utuh hingga batas 800 KB,
+  // tanpa pernah mengosongkan URL foto menjadi ""!
+  const baseSize = JSON.stringify({ ...payload, documentationMedia: [] }).length;
+  let finalMedia = documentationMedia;
+  let estimatedSize = baseSize + JSON.stringify(finalMedia).length;
+
   if (estimatedSize > 850000) {
-    console.warn(`[Firestore] Ukuran sesi presensi (${Math.round(estimatedSize / 1024)} KB) mendekati batas Firestore 1MB. Mengompres media untuk keamanan.`);
-    // Pertahankan ringkasan & data presensi 100%, ringankan data base64 media
-    const safeMedia = documentationMedia.map(m => ({
-      ...m,
-      url: m.url.length > 50000 ? '' : m.url
-    }));
-    const safePayload: TrainingSession = {
-      ...payload,
-      documentationMedia: safeMedia,
-      photos: photos.filter(p => p.length <= 50000)
-    };
-    const docRef = doc(db, TRAINING_SESSIONS_COLLECTION, id);
-    await setDoc(docRef, safePayload, { merge: true });
-    return payload;
+    console.warn(`[Firestore] Dokumen presensi (${Math.round(estimatedSize / 1024)} KB) mendekati batas 1MB. Mempertahankan foto terbaik yang muat di Firestore.`);
+    const trimmedMedia: MediaDocumentation[] = [];
+    let currentLength = baseSize;
+    for (const m of documentationMedia) {
+      const itemLen = JSON.stringify(m).length;
+      if (currentLength + itemLen < 800000) {
+        trimmedMedia.push(m);
+        currentLength += itemLen;
+      } else {
+        break;
+      }
+    }
+    finalMedia = trimmedMedia.length > 0 ? trimmedMedia : documentationMedia.slice(0, 3);
   }
+
+  payload.documentationMedia = finalMedia;
 
   const docRef = doc(db, TRAINING_SESSIONS_COLLECTION, id);
   await setDoc(docRef, payload, { merge: true });

@@ -106,7 +106,7 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
   const [isDeleting, setIsDeleting] = useState(false);
   const [reportModalSession, setReportModalSession] = useState<TrainingSession | null>(null);
 
-  // Compress photo on client side via canvas (Max 1200px, quality 0.72 -> ~80-150KB)
+  // Compress photo on client side via canvas (Max 850px, quality 0.65 -> ~35-50KB)
   const compressImage = (file: File): Promise<MediaDocumentation> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -115,7 +115,7 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
         const img = new Image();
         img.src = event.target?.result as string;
         img.onload = () => {
-          const MAX_DIM = 1200;
+          const MAX_DIM = 850;
           let width = img.width;
           let height = img.height;
 
@@ -145,7 +145,7 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
           }
 
           ctx.drawImage(img, 0, 0, width, height);
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.72);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.65);
           const byteLength = Math.round((compressedDataUrl.length * 3) / 4);
           const sizeKb = Math.round(byteLength / 1024);
 
@@ -165,13 +165,13 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
     });
   };
 
-  // Video processing with size limit (max 15MB)
+  // Video processing with size limit (max 800KB for cloud database storage)
   const processVideo = (file: File): Promise<MediaDocumentation> => {
     return new Promise((resolve, reject) => {
-      const MAX_MB = 15;
+      const MAX_MB = 0.8;
       if (file.size > MAX_MB * 1024 * 1024) {
         const actualMb = (file.size / (1024 * 1024)).toFixed(1);
-        reject(new Error(`Ukuran video (${actualMb} MB) melebihi batas ${MAX_MB}MB. Silakan gunakan klip video pendek (10-30 detik) agar ringan dan lancar dimuat.`));
+        reject(new Error(`Ukuran video (${actualMb} MB) melebihi batas simpan database cloud (maksimal 800 KB). Disarankan menggunakan foto dokumentasi latihan agar langsung tampil di galeri orang tua.`));
         return;
       }
 
@@ -431,6 +431,9 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
     if (res.success && res.session) {
       setEditingSessionId(res.session.id);
       showNotification(`Presensi sesi latihan berhasil disimpan! (${currentStats.hadir} Hadir / ${currentStats.total} Siswa)`, 'success');
+      // Otomatis alihkan ke tab Riwayat Sesi agar pelatih dapat langsung melihat sesi yang baru tercatat
+      setActiveTab('history');
+      setViewingHistorySession(res.session);
     } else {
       showNotification(res.error || 'Gagal menyimpan presensi', 'error');
     }

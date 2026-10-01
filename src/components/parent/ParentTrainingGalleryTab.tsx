@@ -43,6 +43,18 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
     return sessions.length > 0 ? sessions[0].id : '';
   });
 
+  // Synchronize selectedSessionId whenever sessions list arrives from Firestore
+  React.useEffect(() => {
+    if (sessions.length > 0) {
+      if (!selectedSessionId || !sessions.some(s => s.id === selectedSessionId)) {
+        const target = initialSessionId && sessions.some(s => s.id === initialSessionId)
+          ? initialSessionId
+          : sessions[0].id;
+        setSelectedSessionId(target);
+      }
+    }
+  }, [sessions, initialSessionId, selectedSessionId]);
+
   // Lightbox preview modal
   const [previewMedia, setPreviewMedia] = useState<MediaDocumentation | null>(null);
 
@@ -103,20 +115,29 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
   // Compile media items from session
   const mediaItems: MediaDocumentation[] = useMemo(() => {
     if (!currentSession) return [];
+    const list: MediaDocumentation[] = [];
     if (currentSession.documentationMedia && currentSession.documentationMedia.length > 0) {
-      return currentSession.documentationMedia;
+      currentSession.documentationMedia.forEach(m => {
+        if (m && m.url && typeof m.url === 'string' && m.url.trim().length > 0) {
+          list.push(m);
+        }
+      });
     }
-    if (currentSession.photos && currentSession.photos.length > 0) {
-      return currentSession.photos.map((p, idx) => ({
-        id: `photo_${idx}`,
-        type: 'photo' as const,
-        url: p,
-        name: `Foto Latihan #${idx + 1}`,
-        sizeFormatted: 'Standar HD',
-        uploadedAt: currentSession.createdAt
-      }));
+    if (list.length === 0 && currentSession.photos && currentSession.photos.length > 0) {
+      currentSession.photos.forEach((p, idx) => {
+        if (p && typeof p === 'string' && p.trim().length > 0) {
+          list.push({
+            id: `photo_${idx}`,
+            type: 'photo' as const,
+            url: p,
+            name: `Foto Latihan #${idx + 1}`,
+            sizeFormatted: 'Standar HD',
+            uploadedAt: currentSession.createdAt || new Date().toISOString()
+          });
+        }
+      });
     }
-    return [];
+    return list;
   }, [currentSession]);
 
   // Generate distinct filename with photo / video number so each file is uniquely numbered
