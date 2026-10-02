@@ -155,13 +155,15 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       // Abaikan error parsing cache lokal
     }
 
-    // 2. Coba fetch dari server lokal jika ada
+    // 2. Coba fetch dari server lokal jika ada (Hanya jika data server tidak kosong agar tidak menimpa data Firestore/lokal yang sudah ada)
     try {
       const res = await fetch('/api/attendance/sessions');
       if (res.ok) {
         const data: TrainingSession[] = await res.json();
-        const { cleanedSessions } = filterExpiredMediaFromSessions(data);
-        setTrainingSessions(cleanedSessions);
+        if (Array.isArray(data) && data.length > 0) {
+          const { cleanedSessions } = filterExpiredMediaFromSessions(data);
+          setTrainingSessions(cleanedSessions);
+        }
       }
     } catch (err) {
       // Server API opsional saat deploy di Cloudflare Pages
@@ -230,6 +232,13 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             } catch (e) {
               // ignore
             }
+
+            // Sinkronisasi data sesi latihan Firestore ke memory server secara pasif
+            fetch('/api/attendance/sessions/sync-from-cloud', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sessions })
+            }).catch(() => {});
           },
           (err) => {
             console.warn('[Firestore] Info listener trainingSessions:', err);

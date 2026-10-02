@@ -771,6 +771,24 @@ app.post('/api/attendance/purge-expired-media', (_req, res) => {
   });
 });
 
+// POST /api/attendance/sessions/sync-from-cloud - Sync in-memory training sessions with Cloud Firestore
+app.post('/api/attendance/sessions/sync-from-cloud', (req, res) => {
+  try {
+    const { sessions: cloudSessions } = req.body;
+    if (Array.isArray(cloudSessions)) {
+      trainingSessions = cloudSessions.map((s: any) => ({
+        ...s,
+        records: (s.records || []).map((r: any) => ({ ...r, photoUrl: '' })),
+        documentationMedia: s.documentationMedia || [],
+        photos: s.photos || []
+      }));
+    }
+    res.json({ success: true, count: trainingSessions.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/attendance/sessions - Save new attendance session or update existing
 app.post('/api/attendance/sessions', (req, res) => {
   try {

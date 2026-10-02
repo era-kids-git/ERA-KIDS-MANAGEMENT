@@ -107,6 +107,7 @@ export interface StudentAttendanceRecord {
 
 export interface MediaDocumentation {
   id: string;
+  sessionId?: string;
   type: 'photo' | 'video';
   url: string; // Base64 compressed image or video
   name: string;
@@ -136,6 +137,7 @@ export interface TrainingSession {
   notes?: string;
   photos?: string[];
   documentationMedia?: MediaDocumentation[];
+  mediaCount?: number;
   createdAt: string;
   updatedAt: string;
 }

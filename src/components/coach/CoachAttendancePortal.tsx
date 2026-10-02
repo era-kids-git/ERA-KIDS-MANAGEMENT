@@ -37,7 +37,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useRealtime } from '../../context/RealtimeContext.tsx';
 import { AttendanceStatus, StudentAttendanceRecord, TrainingSession, StudentRegistration, MediaDocumentation } from '../../types.ts';
 import { getMediaRemainingDays, isMediaExpired, MEDIA_RETENTION_DAYS } from '../../utils/mediaRetention.ts';
-import { getSessionMediaFromFirestore } from '../../lib/firestoreService.ts';
+import { 
+  getSessionMediaFromFirestore, 
+  saveSessionMediaOnlyToFirestore, 
+  deleteTrainingMediaFromFirestore 
+} from '../../lib/firestoreService.ts';
 import { TrainingReportModal } from './TrainingReportModal.tsx';
 import { EraKidsLogo } from '../common/EraKidsLogo.tsx';
 
@@ -99,13 +103,43 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
 
   // UI helpers
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingAttendance, setIsSavingAttendance] = useState(false);
+  const [isSavingMedia, setIsSavingMedia] = useState(false);
   const [saveToast, setSaveToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [expandedNotesStudentId, setExpandedNotesStudentId] = useState<string | null>(null);
   const [viewingHistorySession, setViewingHistorySession] = useState<TrainingSession | null>(null);
+  const [historyMediaMap, setHistoryMediaMap] = useState<Record<string, MediaDocumentation[]>>({});
   const [sessionToDelete, setSessionToDelete] = useState<TrainingSession | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [reportModalSession, setReportModalSession] = useState<TrainingSession | null>(null);
+
+  // Muat foto HD untuk sesi riwayat yang sedang dibuka
+  useEffect(() => {
+    if (!viewingHistorySession?.id) return;
+    const sId = viewingHistorySession.id;
+    if (!historyMediaMap[sId]) {
+      getSessionMediaFromFirestore(sId).then(list => {
+        if (list && list.length > 0) {
+          setHistoryMediaMap(prev => ({ ...prev, [sId]: list }));
+        }
+      }).catch(() => {});
+    }
+  }, [viewingHistorySession?.id]);
+
+  const handleRemoveHistoryMedia = async (e: React.MouseEvent, sessId: string, mediaId: string) => {
+    e.stopPropagation();
+    try {
+      await deleteTrainingMediaFromFirestore(mediaId, sessId);
+      setHistoryMediaMap(prev => ({
+        ...prev,
+        [sessId]: (prev[sessId] || []).filter(m => m.id !== mediaId)
+      }));
+      showNotification('Foto / video berhasil dihapus dari galeri & database Firebase', 'success');
+    } catch (err: any) {
+      showNotification('Gagal menghapus media dari database', 'error');
+    }
+  };
 
   // Compress photo on client side via canvas (Max 850px, quality 0.65 -> ~35-50KB)
   const compressImage = (file: File): Promise<MediaDocumentation> => {
@@ -268,9 +302,15 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
     }
   };
 
-  const handleRemoveMedia = (id: string) => {
+  const handleRemoveMedia = async (id: string) => {
     setSessionMedia(prev => prev.filter(m => m.id !== id));
-    showNotification('Dokumentasi dihapus');
+    // Jika foto sudah pernah tersimpan di Firebase, hapus langsung dari database
+    try {
+      await deleteTrainingMediaFromFirestore(id, editingSessionId || undefined);
+    } catch (e) {
+      console.warn('Info hapus media cloud:', e);
+    }
+    showNotification('Foto / video berhasil dihapus dari galeri & database Firebase');
   };
 
   // Eligible students for attendance
@@ -390,7 +430,110 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
     setTimeout(() => setSaveToast(null), 3500);
   };
 
-  // Save session to backend
+  // 1. Simpan Presensi Kehadiran Siswa SAJA ke database 'training_sessions'
+  const handleSaveAttendanceOnly = async () => {
+    if (eligibleStudents.length === 0) {
+      alert('Belum ada data siswa terdaftar yang bisa dicatat presensinya.');
+      return;
+    }
+
+    setIsSavingAttendance(true);
+
+    const records: StudentAttendanceRecord[] = eligibleStudents.map((student, idx) => {
+      const entry = attendanceMap[student.id] || { status: 'Hadir', notes: '' };
+      return {
+        studentId: String(student.id || `student_${idx}`),
+        regNumber: String(student.regNumber || ''),
+        studentName: String(student.studentName || 'Siswa'),
+        nickname: String(student.nickname || student.studentName || 'Siswa'),
+        gender: (student.gender === 'P' ? 'P' : 'L') as 'L' | 'P',
+        age: typeof student.age === 'number' && !isNaN(student.age) ? student.age : 0,
+        jerseyNumber: String(student.jerseyNumber || ''),
+        photoUrl: '', // Pas foto disimpan di registrasi siswa, tidak diduplikasi di sesi agar hemat dokumen
+        status: String(entry.status || 'Hadir'),
+        notes: String(entry.notes || '')
+      };
+    });
+
+    const targetId = editingSessionId || `session_${Date.now()}`;
+    const payload: Partial<TrainingSession> = {
+      id: targetId,
+      date: sessionDate,
+      timeRange: sessionTime,
+      sessionTitle,
+      coachName: sessionCoach,
+      location: sessionLocation,
+      programName: "Volleyball Training for Kids",
+      records,
+      notes: sessionNotes || '',
+      documentationMedia: [],
+      photos: []
+    };
+
+    const res = await saveTrainingSession(payload);
+    setIsSavingAttendance(false);
+
+    if (res.success && res.session) {
+      setEditingSessionId(res.session.id);
+      showNotification(`✓ Presensi Kehadiran berhasil disimpan! (${currentStats.hadir} Hadir / ${currentStats.total} Siswa)`, 'success');
+    } else {
+      showNotification(res.error || 'Gagal menyimpan presensi', 'error');
+    }
+  };
+
+  // 2. Simpan Foto & Video Dokumentasi SAJA ke database terpisah 'training_media'
+  const handleSaveMediaOnly = async () => {
+    if (sessionMedia.length === 0) {
+      showNotification('Belum ada foto atau video yang dipilih untuk disimpan', 'error');
+      return;
+    }
+
+    const targetSessionId = editingSessionId || `session_${Date.now()}`;
+    if (!editingSessionId) {
+      setEditingSessionId(targetSessionId);
+    }
+
+    setIsSavingMedia(true);
+
+    const records: StudentAttendanceRecord[] = eligibleStudents.map((student, idx) => {
+      const entry = attendanceMap[student.id] || { status: 'Hadir', notes: '' };
+      return {
+        studentId: String(student.id || `student_${idx}`),
+        regNumber: String(student.regNumber || ''),
+        studentName: String(student.studentName || 'Siswa'),
+        nickname: String(student.nickname || student.studentName || 'Siswa'),
+        gender: (student.gender === 'P' ? 'P' : 'L') as 'L' | 'P',
+        age: typeof student.age === 'number' && !isNaN(student.age) ? student.age : 0,
+        jerseyNumber: String(student.jerseyNumber || ''),
+        photoUrl: '',
+        status: String(entry.status || 'Hadir'),
+        notes: String(entry.notes || '')
+      };
+    });
+
+    const sessionMeta: Partial<TrainingSession> = {
+      id: targetSessionId,
+      date: sessionDate,
+      timeRange: sessionTime,
+      sessionTitle,
+      coachName: sessionCoach,
+      location: sessionLocation,
+      programName: "Volleyball Training for Kids",
+      records,
+      notes: sessionNotes || ''
+    };
+
+    const res = await saveSessionMediaOnlyToFirestore(targetSessionId, sessionMedia, sessionMeta);
+    setIsSavingMedia(false);
+
+    if (res.success) {
+      showNotification(`✓ ${res.count} Foto & Video Dokumentasi berhasil disimpan ke Galeri Firebase!`, 'success');
+    } else {
+      showNotification(res.error || 'Gagal menyimpan media', 'error');
+    }
+  };
+
+  // Save session to backend (Keduanya sekaligus)
   const handleSaveSession = async () => {
     if (eligibleStudents.length === 0) {
       alert('Belum ada data siswa terdaftar yang bisa dicatat presensinya.');
@@ -409,7 +552,7 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
         gender: (student.gender === 'P' ? 'P' : 'L') as 'L' | 'P',
         age: typeof student.age === 'number' && !isNaN(student.age) ? student.age : 0,
         jerseyNumber: String(student.jerseyNumber || ''),
-        photoUrl: String(student.photoUrl || ''),
+        photoUrl: '', // Bersih dari base64
         status: String(entry.status || 'Hadir'),
         notes: String(entry.notes || '')
       };
@@ -1201,6 +1344,36 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
                 );
               })}
             </div>
+
+            {/* TOMBOL SIMPAN 1: KHUSUS PRESENSI KEHADIRAN SISWA */}
+            <div className="mt-5 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-950 via-slate-900 to-emerald-900 border border-emerald-500/40 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <h3 className="font-black text-sm sm:text-base text-white flex items-center gap-2">
+                    <UserCheck className="w-4 h-4 text-emerald-400" />
+                    <span>Simpan Presensi Kehadiran Siswa</span>
+                  </h3>
+                </div>
+                <p className="text-xs text-emerald-200/90 mt-1">
+                  Merekam status kehadiran: <strong>{currentStats.hadir} Hadir</strong>, {currentStats.izin} Izin, {currentStats.tidakHadir} Tidak Hadir dari total {currentStats.total} siswa.
+                </p>
+                <p className="text-[10.5px] text-emerald-300/70 mt-0.5">
+                  Tersimpan mandiri ke database presensi (super cepat & aman). Foto & video disimpan terpisah pada tombol di bawah.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                id="btn-save-attendance-only"
+                onClick={handleSaveAttendanceOnly}
+                disabled={isSavingAttendance}
+                className="w-full sm:w-auto px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 text-sm font-black transition-all shadow-md shadow-emerald-950/30 flex items-center justify-center gap-2 shrink-0 disabled:opacity-50"
+              >
+                <CheckCircle2 className="w-5 h-5 text-slate-950" />
+                <span>{isSavingAttendance ? 'Menyimpan Presensi...' : 'Simpan Presensi Kehadiran'}</span>
+              </button>
+            </div>
           </div>
 
           {/* DOKUMENTASI SESI (FOTO & VIDEO) - DIPINDAHKAN KE BAGIAN AKHIR */}
@@ -1435,10 +1608,44 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
               </div>
             )}
 
-            {/* Bottom Save & Report Bar at the very end of Input Portal */}
+            {/* TOMBOL SIMPAN 2: KHUSUS FOTO & VIDEO DOKUMENTASI */}
+            <div className="mt-5 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 bg-gradient-to-r from-indigo-950 via-slate-900 to-indigo-900 p-4 sm:p-5 rounded-2xl border border-indigo-500/40 text-white shadow-sm">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-pulse" />
+                  <h4 className="font-black text-sm sm:text-base text-white flex items-center gap-1.5">
+                    <Camera className="w-4 h-4 text-indigo-400" />
+                    <span>Simpan Dokumentasi Foto & Video</span>
+                  </h4>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-500/30 text-indigo-300 border border-indigo-400/40 font-mono">
+                    {sessionMedia.length} Media
+                  </span>
+                </div>
+                <p className="text-xs text-indigo-200/90 mt-1 max-w-xl leading-relaxed">
+                  Menyimpan berkas foto & video ke database galeri cloud. <strong>Jika foto dihapus dari tampilan di atas, otomatis langsung dihapus bersih dari database Firebase</strong> dan galeri portal orang tua.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                id="btn-save-media-only"
+                onClick={handleSaveMediaOnly}
+                disabled={isSavingMedia || isProcessingMedia || sessionMedia.length === 0}
+                className="w-full sm:w-auto px-6 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 active:scale-95 text-white text-xs sm:text-sm font-black transition-all shadow-md shadow-indigo-950/40 flex items-center justify-center gap-2 shrink-0 disabled:opacity-40"
+              >
+                <Upload className="w-4 h-4 text-white" />
+                <span>
+                  {isSavingMedia
+                    ? 'Menyimpan Media...'
+                    : `Simpan Foto & Video (${sessionMedia.length} Media)`}
+                </span>
+              </button>
+            </div>
+
+            {/* Bottom Actions Bar at the very end of Input Portal */}
             <div className="mt-6 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
               <p className="text-xs text-slate-500 text-center sm:text-left">
-                Setelah selesai melakukan presensi dan melampirkan dokumentasi, simpan data sesi atau buka <strong>Laporan PDF</strong> untuk dibagikan ke WhatsApp.
+                Gunakan tombol <strong>Simpan Presensi</strong> dan <strong>Simpan Foto & Video</strong> di atas untuk menyimpan ke database. Anda juga dapat langsung membuat <strong>PDF Laporan WA</strong>.
               </p>
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 <button
@@ -1452,12 +1659,12 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
                   <span>PDF Laporan WA</span>
                 </button>
                 <button
-                  onClick={handleSaveSession}
-                  disabled={isSaving}
-                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs sm:text-sm font-black transition-all shadow-md shadow-emerald-900/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                  type="button"
+                  onClick={() => setActiveTab('history')}
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs sm:text-sm font-bold transition-all border border-slate-200 flex items-center justify-center gap-1.5"
                 >
-                  <Save className="w-4 h-4" />
-                  <span>{isSaving ? 'Menyimpan...' : 'Simpan Presensi'}</span>
+                  <History className="w-4 h-4 text-slate-600" />
+                  <span>Lihat Riwayat Sesi</span>
                 </button>
               </div>
             </div>
@@ -1544,10 +1751,10 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
                             {session.summary?.tidakHadir ?? ((session.summary?.alpa || 0) + (session.summary?.sakit || 0))} Tidak Hadir
                           </span>
 
-                          {(session.documentationMedia?.length || session.photos?.length || 0) > 0 ? (
+                          {(session.mediaCount || session.documentationMedia?.length || session.photos?.length || 0) > 0 ? (
                             <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold flex items-center gap-1" title={`Foto & video tersimpan (sisa ${getMediaRemainingDays(undefined, session.date, session.createdAt)} hari sebelum auto-hapus 3 minggu)`}>
                               <Camera className="w-3 h-3 text-amber-600" />
-                              <span>{session.documentationMedia?.length || session.photos?.length || 0} Media</span>
+                              <span>{session.mediaCount || session.documentationMedia?.length || session.photos?.length || 0} Media</span>
                               <span className="text-[10px] font-semibold text-amber-700 font-mono">({getMediaRemainingDays(undefined, session.date, session.createdAt)}h)</span>
                             </span>
                           ) : isMediaExpired(undefined, session.date, session.createdAt) ? (
@@ -1676,41 +1883,57 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
                                 </span>
                               </div>
                               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                                {session.documentationMedia && session.documentationMedia.length > 0 ? (
-                                  session.documentationMedia.map((media) => (
-                                    <button
-                                      key={media.id}
-                                      type="button"
-                                      onClick={() => setActiveMediaModal(media)}
-                                      className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-900 group hover:ring-2 hover:ring-amber-500 transition-all text-left"
-                                    >
-                                      {media.type === 'photo' ? (
-                                        <img
-                                          src={media.url}
-                                          alt={media.name}
-                                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                                          referrerPolicy="no-referrer"
-                                        />
-                                      ) : (
-                                        <div className="w-full h-full flex items-center justify-center bg-slate-950">
-                                          <video src={media.url} className="w-full h-full object-cover opacity-70" muted />
-                                          <div className="absolute inset-0 flex items-center justify-center">
-                                            <div className="w-7 h-7 rounded-full bg-white/30 backdrop-blur-xs flex items-center justify-center text-white">
-                                              <Play className="w-3.5 h-3.5 fill-white ml-0.5" />
+                                {(() => {
+                                  const historyMediaList = (historyMediaMap[session.id] && historyMediaMap[session.id].length > 0)
+                                    ? historyMediaMap[session.id]
+                                    : (session.documentationMedia || []);
+                                  
+                                  if (historyMediaList.length > 0) {
+                                    return historyMediaList.map((media) => (
+                                      <div
+                                        key={media.id}
+                                        onClick={() => setActiveMediaModal(media)}
+                                        className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-900 group hover:ring-2 hover:ring-amber-500 transition-all text-left cursor-pointer"
+                                      >
+                                        {media.type === 'photo' ? (
+                                          <img
+                                            src={media.url}
+                                            alt={media.name}
+                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                            referrerPolicy="no-referrer"
+                                          />
+                                        ) : (
+                                          <div className="w-full h-full flex items-center justify-center bg-slate-950">
+                                            <video src={media.url} className="w-full h-full object-cover opacity-70" muted />
+                                            <div className="absolute inset-0 flex items-center justify-center">
+                                              <div className="w-7 h-7 rounded-full bg-white/30 backdrop-blur-xs flex items-center justify-center text-white">
+                                                <Play className="w-3.5 h-3.5 fill-white ml-0.5" />
+                                              </div>
                                             </div>
                                           </div>
+                                        )}
+
+                                        {/* Tombol Hapus Langsung dari Database Firebase */}
+                                        <button
+                                          type="button"
+                                          title="Hapus foto dari galeri & Firebase"
+                                          onClick={(e) => handleRemoveHistoryMedia(e, session.id, media.id)}
+                                          className="absolute top-1.5 right-1.5 z-20 w-6 h-6 rounded-lg bg-rose-600/90 hover:bg-rose-700 text-white flex items-center justify-center shadow-xs opacity-90 sm:opacity-0 group-hover:opacity-100 transition-opacity"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+
+                                        <div className="absolute bottom-0 inset-x-0 p-1 bg-gradient-to-t from-slate-950/80 to-transparent flex items-center justify-between text-[9px] text-white">
+                                          <span className={`px-1 rounded font-bold ${media.type === 'photo' ? 'bg-emerald-500' : 'bg-indigo-500'}`}>
+                                            {media.type === 'photo' ? 'FOTO' : 'VIDEO'}
+                                          </span>
+                                          <span className="font-mono">{media.sizeFormatted || ''}</span>
                                         </div>
-                                      )}
-                                      <div className="absolute bottom-0 inset-x-0 p-1 bg-gradient-to-t from-slate-950/80 to-transparent flex items-center justify-between text-[9px] text-white">
-                                        <span className={`px-1 rounded font-bold ${media.type === 'photo' ? 'bg-emerald-500' : 'bg-indigo-500'}`}>
-                                          {media.type === 'photo' ? 'FOTO' : 'VIDEO'}
-                                        </span>
-                                        <span className="font-mono">{media.sizeFormatted || ''}</span>
                                       </div>
-                                    </button>
-                                  ))
-                                ) : (
-                                  session.photos?.map((photoUrl, pIdx) => (
+                                    ));
+                                  }
+
+                                  return session.photos?.map((photoUrl, pIdx) => (
                                     <button
                                       key={pIdx}
                                       type="button"
@@ -1732,8 +1955,8 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
                                         FOTO {pIdx + 1}
                                       </div>
                                     </button>
-                                  ))
-                                )}
+                                  ));
+                                })()}
                               </div>
                             </div>
                           ) : isMediaExpired(undefined, session.date, session.createdAt) ? (

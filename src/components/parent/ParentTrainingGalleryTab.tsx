@@ -278,7 +278,7 @@ export const ParentTrainingGalleryTab: React.FC<ParentTrainingGalleryTabProps> =
           </span>
           {sessions.map(s => {
             const isSelected = (currentSession && currentSession.id === s.id) || selectedSessionId === s.id;
-            const photoCount = s.documentationMedia?.length || s.photos?.length || 0;
+            const photoCount = s.mediaCount || s.documentationMedia?.length || s.photos?.length || 0;
 
             return (
               <button

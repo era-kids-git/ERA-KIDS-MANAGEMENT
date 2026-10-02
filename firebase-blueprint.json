@@ -42,9 +42,27 @@
         "programName": { "type": "string" },
         "records": { "type": "array" },
         "documentationMedia": { "type": "array" },
+        "mediaCount": { "type": "number" },
         "createdAt": { "type": "string" }
       },
       "required": ["id", "date", "sessionTitle", "coachName", "records", "createdAt"]
+    },
+    "training_media": {
+      "title": "Training Documentation Media",
+      "description": "Koleksi foto dan video sesi latihan ERA Kids yang terpisah dari presensi",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "type": { "type": "string", "enum": ["photo", "video"] },
+        "url": { "type": "string" },
+        "name": { "type": "string" },
+        "sizeFormatted": { "type": "string" },
+        "sizeBytes": { "type": "number" },
+        "caption": { "type": "string" },
+        "uploadedAt": { "type": "string" }
+      },
+      "required": ["id", "sessionId", "type", "url", "uploadedAt"]
     },
     "whatsapp_notifications": {
       "title": "WhatsApp Notifications Log",
@@ -64,6 +82,6 @@
   },
   "firestoreRules": {
     "description": "Public read/write rules for app operational access",
-    "rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /registrations/{document=**} {\n      allow read, write: if true;\n    }\n    match /training_sessions/{document=**} {\n      allow read, write: if true;\n    }\n    match /whatsapp_notifications/{document=**} {\n      allow read, write: if true;\n    }\n  }\n}"
+    "rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /registrations/{document=**} {\n      allow read, write: if true;\n    }\n    match /training_sessions/{document=**} {\n      allow read, write: if true;\n    }\n    match /training_media/{document=**} {\n      allow read, write: if true;\n    }\n    match /whatsapp_notifications/{document=**} {\n      allow read, write: if true;\n    }\n  }\n}"
   }
 }

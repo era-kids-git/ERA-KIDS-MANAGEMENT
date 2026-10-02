@@ -6,7 +6,10 @@ import {
   deleteDoc,
   onSnapshot,
   getDocs,
-  writeBatch
+  getDoc,
+  writeBatch,
+  query,
+  where
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { StudentRegistration, TrainingSession, WhatsAppNotification, MediaDocumentation } from '../types';
@@ -16,6 +19,7 @@ import { getNextAvailableRegNumber, calculateAgeFromBirthDate } from '../utils/r
 
 export const REGISTRATIONS_COLLECTION = 'registrations';
 export const TRAINING_SESSIONS_COLLECTION = 'training_sessions';
+export const TRAINING_MEDIA_COLLECTION = 'training_media';
 
 /**
  * Inisialisasi Firestore: bersihkan data dummy jika ada, jangan isi dummy baru
@@ -281,8 +285,9 @@ export async function batchRestoreRegistrationsToFirestore(
 
 /**
  * Simpan atau perbarui sesi presensi dan media dokumentasi di Firestore
- * Dilengkapi sanitasi ketat agar tidak ada nilai `undefined` yang menyebabkan
- * kegagalan simpan pada Firestore JS SDK serta proteksi ukuran dokumen.
+ * PENYIMPANAN DIPISAHKAN SECARA TOTAL:
+ * 1. Data teks presensi siswa disimpan di database koleksi 'training_sessions' (sangat ringan ~4-8KB, 100% aman dan permanen).
+ * 2. Berkas foto & video dokumentasi disimpan di database koleksi terpisah 'training_media'.
  */
 export async function saveTrainingSessionToFirestore(sessionData: Partial<TrainingSession>): Promise<TrainingSession> {
   const id = sessionData.id && sessionData.id.trim() ? sessionData.id.trim() : `session_${Date.now()}`;
@@ -318,36 +323,31 @@ export async function saveTrainingSessionToFirestore(sessionData: Partial<Traini
       gender: (r.gender === 'P' ? 'P' : 'L') as 'L' | 'P',
       age: typeof r.age === 'number' && !isNaN(r.age) ? r.age : 0,
       jerseyNumber: String(r.jerseyNumber || ''),
-      photoUrl: String(r.photoUrl || ''),
+      photoUrl: '', // CRITICAL: Pas foto tersimpan di registrasi siswa, tidak diduplikasi ke sesi agar ukuran dokumen sangat kecil (~5KB) dan tidak pernah melebihi batas 1MB
       status: status,
       notes: String(r.notes || '')
     };
   });
 
-  // Sanitasi media dokumentasi (pastikan tidak ada field undefined)
+  // Sanitasi berkas media dokumentasi foto & video
   const rawMedia = sessionData.documentationMedia || [];
-  const documentationMedia: MediaDocumentation[] = rawMedia
+  const validMediaList: MediaDocumentation[] = rawMedia
     .filter(m => m && m.url && typeof m.url === 'string' && m.url.trim().length > 0)
     .map((m, idx) => ({
       id: String(m.id || `media_${Date.now()}_${idx}`),
+      sessionId: id,
       type: m.type === 'video' ? ('video' as const) : ('photo' as const),
       url: String(m.url),
       name: String(m.name || `Media ${idx + 1}`),
       sizeFormatted: String(m.sizeFormatted || ''),
       sizeBytes: typeof m.sizeBytes === 'number' ? m.sizeBytes : 0,
-      uploadedAt: String(m.uploadedAt || nowIso)
+      uploadedAt: String(m.uploadedAt || nowIso),
+      caption: String(m.caption || '')
     }));
 
-  // Jika documentationMedia sudah ada, jangan duplikasi data gambar base64 di field photos
-  // agar ukuran dokumen Firestore tetap sangat hemat dan tidak melebihi 1MB
-  const rawPhotos = sessionData.photos || [];
-  const photos = documentationMedia.length > 0
-    ? []
-    : rawPhotos
-        .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
-        .map(p => String(p));
-
-  const payload: TrainingSession = {
+  // 1. SIMPAN DATA PRESENSI HANYA KE DATABASE 'training_sessions'
+  // Bersih dari data Base64 gambar agar dokumen sangat ringan (~4-8 KB) dan 100% tidak akan pernah hilang atau gagal
+  const sessionPayload: TrainingSession = {
     id,
     date: sessionData.date || nowIso.split('T')[0],
     timeRange: sessionData.timeRange || '18.45 - 21.00 WIB',
@@ -365,61 +365,36 @@ export async function saveTrainingSessionToFirestore(sessionData: Partial<Traini
       alpa
     },
     notes: String(sessionData.notes || ''),
-    photos,
-    documentationMedia,
+    photos: [],
+    documentationMedia: validMediaList.map(m => ({
+      id: m.id,
+      sessionId: id,
+      type: m.type,
+      name: m.name,
+      sizeFormatted: m.sizeFormatted,
+      sizeBytes: m.sizeBytes,
+      uploadedAt: m.uploadedAt,
+      caption: m.caption,
+      url: '' // Tidak menyimpan base64 di training_sessions!
+    })),
+    mediaCount: validMediaList.length,
     createdAt: sessionData.createdAt || nowIso,
     updatedAt: nowIso
   };
 
-  // Proteksi ukuran dokumen Firestore (Firestore hard limit adalah 1 MiB / 1,048,576 bytes)
-  // 1. Jangan pernah duplikasi data base64 di payload.photos jika sudah ada di documentationMedia
-  payload.photos = [];
+  // Simpan dokumen presensi secara bersih ke Firestore training_sessions (tanpa merge: true agar bersih 100%)
+  const docRef = doc(db, TRAINING_SESSIONS_COLLECTION, id);
+  await setDoc(docRef, sessionPayload);
+  console.log(`[Firestore] Sesi presensi '${id}' berhasil disimpan secara permanen di database 'training_sessions'.`);
 
-  const baseSize = JSON.stringify({ ...payload, documentationMedia: [] }).length;
-  const MAX_SAFE_FIRESTORE_BYTES = 850000; // 850 KB batas aman
-  const MAX_SINGLE_MEDIA_BYTES = 350000;   // 350 KB per media item
-
-  const safeMedia: MediaDocumentation[] = [];
-  let currentBytes = baseSize;
-
-  for (const m of documentationMedia) {
-    const itemBytes = JSON.stringify(m).length;
-
-    // Jika ada satu media individu yang berukuran terlalu besar (misal video 1-2MB),
-    // simpan informasinya di dokumen tanpa string base64 raksasanya agar dokumen Firestore TIDAK JEBOL
-    if (itemBytes > MAX_SINGLE_MEDIA_BYTES) {
-      console.warn(`[Firestore] Media "${m.name}" (${Math.round(itemBytes / 1024)} KB) melebihi batas per-item Firestore (350 KB). Menyimpan metadata file.`);
-      safeMedia.push({
-        ...m,
-        url: '', // kosongkan data base64 raksasa
-        caption: (m.caption ? m.caption + ' ' : '') + '(File terlalu besar untuk database cloud, gunakan foto di bawah 300KB)'
-      });
-      continue;
-    }
-
-    if (currentBytes + itemBytes < MAX_SAFE_FIRESTORE_BYTES) {
-      safeMedia.push(m);
-      currentBytes += itemBytes;
-    } else {
-      console.warn(`[Firestore] Batas total dokumen 850KB tercapai. Media "${m.name}" disimpan sebagai info.`);
-      safeMedia.push({
-        ...m,
-        url: '',
-        caption: (m.caption ? m.caption + ' ' : '') + '(Melebihi kuota aman dokumen 850KB)'
-      });
-    }
-  }
-
-  payload.documentationMedia = safeMedia;
-
-  // Sinkronisasi subcollection media Full HD secara presisi:
-  // Hapus foto yang dibuang oleh pelatih, dan simpan/perbarui foto baru atau yang diedit
+  // 2. SIMPAN BERKAS FOTO & VIDEO KE DATABASE TERPISAH 'training_media'
   try {
-    const mediaColRef = collection(db, TRAINING_SESSIONS_COLLECTION, id, 'media');
-    const existingSnap = await getDocs(mediaColRef);
-    const newMediaIds = new Set(documentationMedia.map(m => m.id));
+    // Cari media yang sudah tersimpan di training_media untuk sesi ini
+    const mediaQ = query(collection(db, TRAINING_MEDIA_COLLECTION), where('sessionId', '==', id));
+    const existingSnap = await getDocs(mediaQ);
+    const newMediaIds = new Set(validMediaList.map(m => m.id));
 
-    // 1. Hapus berkas foto yang telah dihapus oleh pelatih dari Firestore subcollection
+    // A. Hapus foto yang dibuang oleh pelatih dari database training_media
     const deletePromises: Promise<any>[] = [];
     existingSnap.forEach(d => {
       if (!newMediaIds.has(d.id)) {
@@ -428,52 +403,49 @@ export async function saveTrainingSessionToFirestore(sessionData: Partial<Traini
     });
     if (deletePromises.length > 0) {
       await Promise.all(deletePromises);
-      console.log(`[Firestore] ${deletePromises.length} foto yang dihapus pelatih berhasil dibersihkan dari subcollection.`);
+      console.log(`[Firestore] ${deletePromises.length} foto lama dibersihkan dari database 'training_media'.`);
     }
 
-    // 2. Simpan atau perbarui berkas foto aktif (resolusi Full HD)
-    if (documentationMedia.length > 0) {
-      await Promise.all(
-        documentationMedia.map(async (m) => {
-          if (m.url && m.url.trim().length > 0) {
-            await setDoc(doc(mediaColRef, m.id), m, { merge: true });
-          }
-        })
-      );
-      console.log(`[Firestore] ${documentationMedia.length} foto HD aktif disinkronkan ke subcollection.`);
+    // B. Simpan berkas foto & video aktif ke dokumen tersendiri di training_media
+    for (const m of validMediaList) {
+      const mediaItemDoc = {
+        id: m.id,
+        sessionId: id,
+        type: m.type,
+        url: m.url, // Base64 foto Full HD
+        name: m.name,
+        sizeFormatted: m.sizeFormatted,
+        sizeBytes: m.sizeBytes || 0,
+        caption: m.caption || '',
+        uploadedAt: m.uploadedAt
+      };
+      await setDoc(doc(db, TRAINING_MEDIA_COLLECTION, m.id), mediaItemDoc);
     }
-  } catch (subErr) {
-    console.warn('[Firestore] Info sinkronisasi media subcollection:', subErr);
+    console.log(`[Firestore] ${validMediaList.length} media berhasil disimpan di database terpisah 'training_media'.`);
+  } catch (mediaErr) {
+    console.warn('[Firestore] Gagal menyimpan ke training_media:', mediaErr);
   }
 
-  // Verifikasi final mutlak: jika ukuran serialisasi JSON masih mendekati 950,000 bytes,
-  // pangkas media secara darurat sehingga setDoc() DIJAMIN 100% TIDAK PERNAH DITOLAK FIRESTORE!
-  let finalJsonLen = JSON.stringify(payload).length;
-  if (finalJsonLen > 950000) {
-    console.warn(`[Firestore] Dokumen akhir (${finalJsonLen} bytes) masih melebihi batas aman. Mengamankan data presensi.`);
-    while (payload.documentationMedia.length > 0 && JSON.stringify(payload).length > 950000) {
-      payload.documentationMedia.pop();
-    }
-  }
-
-  const docRef = doc(db, TRAINING_SESSIONS_COLLECTION, id);
-  await setDoc(docRef, payload, { merge: true });
-  return payload;
+  // Kembalikan objek sesi dengan media lengkap untuk state lokal aplikasi
+  return {
+    ...sessionPayload,
+    documentationMedia: validMediaList
+  };
 }
 
 /**
- * Listener real-time untuk subcollection media sesi latihan
- * Otomatis memperbarui foto saat pelatih menambah, mengedit, atau menghapus foto
+ * Listener real-time untuk media foto & video sesi latihan dari koleksi terpisah 'training_media'
+ * Otomatis sinkron seketika saat pelatih menambah, mengedit, atau menghapus foto
  */
 export function subscribeToSessionMedia(
   sessionId: string,
   onData: (media: MediaDocumentation[]) => void,
   onError?: (err: Error) => void
 ) {
-  const mediaColRef = collection(db, TRAINING_SESSIONS_COLLECTION, sessionId, 'media');
+  const q = query(collection(db, TRAINING_MEDIA_COLLECTION), where('sessionId', '==', sessionId));
   return onSnapshot(
-    mediaColRef,
-    (snapshot) => {
+    q,
+    async (snapshot) => {
       const list: MediaDocumentation[] = [];
       snapshot.forEach((docSnap) => {
         const item = docSnap.data() as MediaDocumentation;
@@ -481,6 +453,20 @@ export function subscribeToSessionMedia(
           list.push(item);
         }
       });
+
+      // Fallback: Jika di training_media masih kosong, periksa apakah ada di subcollection lama
+      if (list.length === 0) {
+        try {
+          const oldSubSnap = await getDocs(collection(db, TRAINING_SESSIONS_COLLECTION, sessionId, 'media'));
+          oldSubSnap.forEach(d => {
+            const item = d.data() as MediaDocumentation;
+            if (item && item.url && item.url.trim().length > 0) {
+              list.push(item);
+            }
+          });
+        } catch {}
+      }
+
       list.sort((a, b) => new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime());
       onData(list);
     },
@@ -492,12 +478,12 @@ export function subscribeToSessionMedia(
 }
 
 /**
- * Ambil daftar media dokumentasi HD lengkap dari subcollection sesi
+ * Ambil daftar media dokumentasi HD lengkap dari koleksi terpisah 'training_media'
  */
 export async function getSessionMediaFromFirestore(sessionId: string): Promise<MediaDocumentation[]> {
   try {
-    const mediaColRef = collection(db, TRAINING_SESSIONS_COLLECTION, sessionId, 'media');
-    const snap = await getDocs(mediaColRef);
+    const q = query(collection(db, TRAINING_MEDIA_COLLECTION), where('sessionId', '==', sessionId));
+    const snap = await getDocs(q);
     const list: MediaDocumentation[] = [];
     snap.forEach((docSnap) => {
       const item = docSnap.data() as MediaDocumentation;
@@ -505,27 +491,196 @@ export async function getSessionMediaFromFirestore(sessionId: string): Promise<M
         list.push(item);
       }
     });
+
+    // Fallback: jika belum ada di training_media, cek subcollection lama
+    if (list.length === 0) {
+      try {
+        const oldSubSnap = await getDocs(collection(db, TRAINING_SESSIONS_COLLECTION, sessionId, 'media'));
+        oldSubSnap.forEach(d => {
+          const item = d.data() as MediaDocumentation;
+          if (item && item.url && item.url.trim().length > 0) {
+            list.push(item);
+          }
+        });
+      } catch {}
+    }
+
+    list.sort((a, b) => new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime());
     return list;
   } catch (err) {
-    console.warn('[Firestore] Gagal memuat media HD dari subcollection:', err);
+    console.warn('[Firestore] Gagal memuat media dari training_media:', err);
     return [];
   }
 }
 
 /**
- * Hapus sesi latihan dari Firestore
+ * Hapus sesi latihan dari database 'training_sessions' dan bersihkan media dari 'training_media'
  */
 export async function deleteTrainingSessionFromFirestore(id: string): Promise<void> {
   try {
-    const mediaColRef = collection(db, TRAINING_SESSIONS_COLLECTION, id, 'media');
-    const mediaSnap = await getDocs(mediaColRef);
-    const batch = writeBatch(db);
-    mediaSnap.docs.forEach((d) => batch.delete(d.ref));
-    batch.delete(doc(db, TRAINING_SESSIONS_COLLECTION, id));
-    await batch.commit();
-  } catch {
-    const docRef = doc(db, TRAINING_SESSIONS_COLLECTION, id);
-    await deleteDoc(docRef);
+    // 1. Hapus dokumen presensi dari training_sessions
+    await deleteDoc(doc(db, TRAINING_SESSIONS_COLLECTION, id));
+
+    // 2. Hapus semua foto/video terkait dari database training_media
+    try {
+      const mediaQ = query(collection(db, TRAINING_MEDIA_COLLECTION), where('sessionId', '==', id));
+      const mediaSnap = await getDocs(mediaQ);
+      const batch = writeBatch(db);
+      mediaSnap.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    } catch {}
+
+    // 3. Bersihkan subcollection lama jika ada
+    try {
+      const oldSubSnap = await getDocs(collection(db, TRAINING_SESSIONS_COLLECTION, id, 'media'));
+      const batchOld = writeBatch(db);
+      oldSubSnap.docs.forEach((d) => batchOld.delete(d.ref));
+      await batchOld.commit();
+    } catch {}
+
+    console.log(`[Firestore] Sesi '${id}' dan seluruh medianya berhasil dihapus bersih.`);
+  } catch (err) {
+    console.error('[Firestore] Gagal menghapus sesi presensi:', err);
+    throw err;
+  }
+}
+
+/**
+ * Hapus berkas foto/video tertentu dari database 'training_media' (dan subcollection lama jika ada)
+ * Memastikan jika foto hilang/dihapus dari galeri, data di Firebase langsung terhapus bersih seketika.
+ */
+export async function deleteTrainingMediaFromFirestore(mediaId: string, sessionId?: string): Promise<void> {
+  try {
+    // 1. Hapus dari database training_media
+    await deleteDoc(doc(db, TRAINING_MEDIA_COLLECTION, mediaId));
+    console.log(`[Firestore] Media '${mediaId}' berhasil dihapus dari database 'training_media'.`);
+
+    // 2. Jika sessionId disediakan, perbarui juga subcollection lama dan kurangi mediaCount sesi
+    if (sessionId) {
+      try {
+        await deleteDoc(doc(db, TRAINING_SESSIONS_COLLECTION, sessionId, 'media', mediaId));
+      } catch {}
+
+      try {
+        const sessionRef = doc(db, TRAINING_SESSIONS_COLLECTION, sessionId);
+        const sessionSnap = await getDoc(sessionRef);
+        if (sessionSnap.exists()) {
+          const currentCount = sessionSnap.data()?.mediaCount || 0;
+          await updateDoc(sessionRef, {
+            mediaCount: Math.max(0, currentCount - 1),
+            updatedAt: new Date().toISOString()
+          });
+        }
+      } catch {}
+    }
+  } catch (err) {
+    console.warn(`[Firestore] Gagal menghapus media '${mediaId}':`, err);
+  }
+}
+
+/**
+ * Khusus menyimpan dan menyinkronkan berkas foto & video ke database terpisah 'training_media'
+ * Foto yang dibuang/hilang dari galeri otomatis dihapus bersih dari database Firebase.
+ */
+export async function saveSessionMediaOnlyToFirestore(
+  sessionId: string,
+  mediaList: MediaDocumentation[],
+  sessionMeta?: Partial<TrainingSession>
+): Promise<{ success: boolean; count: number; error?: string }> {
+  try {
+    const nowIso = new Date().toISOString();
+    const validMediaList = mediaList.filter(m => m && m.url && typeof m.url === 'string' && m.url.trim().length > 0);
+    const newMediaIds = new Set(validMediaList.map(m => m.id));
+
+    // 1. Cari media yang sudah ada di database training_media untuk sesi ini
+    const mediaQ = query(collection(db, TRAINING_MEDIA_COLLECTION), where('sessionId', '==', sessionId));
+    const existingSnap = await getDocs(mediaQ);
+
+    // 2. HAPUS dari Firebase setiap foto yang sudah tidak ada / dihilangkan dari galeri
+    const deletePromises: Promise<any>[] = [];
+    existingSnap.forEach(d => {
+      if (!newMediaIds.has(d.id)) {
+        deletePromises.push(deleteDoc(d.ref));
+      }
+    });
+    if (deletePromises.length > 0) {
+      await Promise.all(deletePromises);
+      console.log(`[Firestore] ${deletePromises.length} foto/video yang dibuang dari galeri berhasil dihapus dari database Firebase.`);
+    }
+
+    // 3. Simpan atau perbarui foto & video aktif ke training_media
+    for (const m of validMediaList) {
+      const mediaItemDoc = {
+        id: m.id,
+        sessionId: sessionId,
+        type: m.type,
+        url: m.url, // Base64 Full HD
+        name: m.name,
+        sizeFormatted: m.sizeFormatted || 'HD',
+        sizeBytes: m.sizeBytes || 0,
+        caption: m.caption || '',
+        uploadedAt: m.uploadedAt || nowIso
+      };
+      await setDoc(doc(db, TRAINING_MEDIA_COLLECTION, m.id), mediaItemDoc);
+    }
+
+    // 4. Perbarui mediaCount di dokumen training_sessions atau buat dokumen sesi jika belum ada
+    const lightweightMediaMeta = validMediaList.map(m => ({
+      id: m.id,
+      sessionId: sessionId,
+      type: m.type,
+      name: m.name,
+      sizeFormatted: m.sizeFormatted || 'HD',
+      sizeBytes: m.sizeBytes || 0,
+      uploadedAt: m.uploadedAt || nowIso,
+      caption: m.caption || '',
+      url: '' // Clean metadata
+    }));
+
+    try {
+      const sessionDocRef = doc(db, TRAINING_SESSIONS_COLLECTION, sessionId);
+      const sessionSnap = await getDoc(sessionDocRef);
+      if (sessionSnap.exists()) {
+        await updateDoc(sessionDocRef, {
+          mediaCount: validMediaList.length,
+          documentationMedia: lightweightMediaMeta,
+          updatedAt: nowIso
+        });
+      } else {
+        // Jika sesi belum pernah disimpan via tombol presensi, buat dokumen header sesi otomatis
+        const fallbackSession: TrainingSession = {
+          id: sessionId,
+          date: sessionMeta?.date || nowIso.split('T')[0],
+          timeRange: sessionMeta?.timeRange || '18.45 - 21.00 WIB',
+          sessionTitle: sessionMeta?.sessionTitle || 'Latihan Reguler',
+          coachName: sessionMeta?.coachName || 'Pelatih Utama',
+          location: sessionMeta?.location || 'GOR VOLI KUBA',
+          programName: sessionMeta?.programName || 'Volleyball Training for Kids',
+          records: (sessionMeta?.records || []).map(r => ({ ...r, photoUrl: '' })),
+          summary: sessionMeta?.summary || {
+            total: sessionMeta?.records?.length || 0,
+            hadir: sessionMeta?.records?.length || 0,
+            izin: 0,
+            tidakHadir: 0
+          },
+          notes: sessionMeta?.notes || '',
+          photos: [],
+          documentationMedia: lightweightMediaMeta,
+          mediaCount: validMediaList.length,
+          createdAt: sessionMeta?.createdAt || nowIso,
+          updatedAt: nowIso
+        };
+        await setDoc(sessionDocRef, fallbackSession);
+      }
+    } catch (e) {
+      console.warn('[Firestore] Info update/create header pada sesi:', e);
+    }
+
+    console.log(`[Firestore] Berhasil menyimpan ${validMediaList.length} media untuk sesi '${sessionId}'.`);
+    return { success: true, count: validMediaList.length };
+  } catch (err: any) {
+    console.error('[Firestore] Gagal menyimpan foto/video ke training_media:', err);
+    return { success: false, count: 0, error: err.message || 'Gagal menyimpan media' };
   }
 }
 

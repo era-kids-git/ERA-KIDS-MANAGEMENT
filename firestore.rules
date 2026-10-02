@@ -7,8 +7,12 @@ service cloud.firestore {
     match /training_sessions/{document=**} {
       allow read, write: if true;
     }
+    match /training_media/{document=**} {
+      allow read, write: if true;
+    }
     match /whatsapp_notifications/{document=**} {
       allow read, write: if true;
     }
   }
 }
+
