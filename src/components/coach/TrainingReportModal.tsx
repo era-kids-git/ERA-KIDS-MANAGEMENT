@@ -4,10 +4,7 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas-pro';
 import { 
   X, 
-  Printer, 
   Download, 
-  MessageSquare, 
-  Copy, 
   Check, 
   ExternalLink, 
   Calendar, 
@@ -19,9 +16,8 @@ import {
   FileText,
   Loader2,
   AlertCircle,
-  ZoomIn,
-  ZoomOut,
-  Share2
+  Share2,
+  Image as ImageIcon
 } from 'lucide-react';
 import { TrainingSession } from '../../types.ts';
 import { EraKidsLogo } from '../common/EraKidsLogo.tsx';
@@ -37,14 +33,20 @@ export const TrainingReportModal: React.FC<TrainingReportModalProps> = ({
   isOpen,
   onClose
 }) => {
-  const [copiedWaText, setCopiedWaText] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isSharingWa, setIsSharingWa] = useState(false);
+  const [isSharingImage, setIsSharingImage] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [shareMessage, setShareMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Format Kertas Laporan PDF:
+  // 'auto': 1 Lembar Pas Utuh Continuous (Tinggi otomatis sesuai konten, TIDAK PERNAH terpisah/terpotong di WA/HP)
+  // 'f4': Kertas F4 / Folio (215 x 330 mm - standar kantor & sekolah Indonesia)
+  // 'a4': Kertas A4 (210 x 297 mm)
+  // 'multipage': 2 Lembar Cetak A4 Terpisah Rapi (Cetak Fisik)
+  const [paperFormat, setPaperFormat] = useState<'auto' | 'f4' | 'a4' | 'multipage'>('auto');
 
   // Responsive scaling & zoom state for mobile screen fitting
   const [zoomLevel, setZoomLevel] = useState<'fit' | 1 | 1.25 | 1.5>('fit');
@@ -170,8 +172,49 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
 *Admin & Manajemen ERA Kids*`;
   };
 
-  // Generate jsPDF instance and PDF Blob with high resolution
-  const generatePdfInstance = async (): Promise<{ pdf: jsPDF; blob: Blob; filename: string; text: string }> => {
+  // Helper to generate full-resolution Image Blob (JPEG & PNG)
+  const generateImageBlob = async (): Promise<{ jpegBlob: Blob; pngBlob: Blob; dataUrl: string; filename: string }> => {
+    const element = reportRef.current || document.getElementById('printable-training-report');
+    if (!element) {
+      throw new Error('Dokumen laporan tidak ditemukan.');
+    }
+
+    const prevTransform = element.style.transform;
+    const prevTransformOrigin = element.style.transformOrigin;
+    element.style.transform = 'none';
+    element.style.transformOrigin = 'initial';
+
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      logging: false,
+      backgroundColor: '#ffffff'
+    });
+
+    element.style.transform = prevTransform;
+    element.style.transformOrigin = prevTransformOrigin;
+
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+
+    const jpegBlob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Gagal konversi ke JPEG'))), 'image/jpeg', 0.95);
+    });
+
+    const pngBlob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Gagal konversi ke PNG'))), 'image/png');
+    });
+
+    const safeDate = session.date || new Date().toISOString().split('T')[0];
+    const safeTitle = (session.sessionTitle || 'Laporan_Latihan').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `Laporan_Latihan_ERAKids_${safeDate}_${safeTitle}.jpg`;
+
+    return { jpegBlob, pngBlob, dataUrl, filename };
+  };
+
+  // Generate jsPDF instance and PDF Blob with high resolution and customizable paper format
+  const generatePdfInstance = async (formatOverride?: 'auto' | 'f4' | 'a4' | 'multipage'): Promise<{ pdf: jsPDF; blob: Blob; filename: string; text: string }> => {
+    const selectedFormat = formatOverride || paperFormat;
     const element = reportRef.current || document.getElementById('printable-training-report');
     if (!element) {
       throw new Error('Dokumen laporan tidak ditemukan.');
@@ -198,37 +241,129 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
 
     const imgData = canvas.toDataURL('image/jpeg', 0.95);
 
-    // Create jsPDF A4 portrait instance (210 x 297 mm)
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4'
-    });
+    let pdf: jsPDF;
 
-    const pageWidth = 210;
-    const pageHeight = 297;
-    const margin = 8; // 8mm margin
-    const printWidth = pageWidth - (margin * 2);
-    const printHeight = (canvas.height * printWidth) / canvas.width;
+    if (selectedFormat === 'auto') {
+      // 1. AUTO 1 LEMBAR PAS UTUH (CONTINUOUS) - SANGAT DIANJURKAN UNTUK WA / PDF DIGITAL
+      // Menyesuaikan tinggi kertas dengan tepat sesuai panjang konten (canvas height).
+      // DIJAMIN 100% TIDAK PERNAH TERPOTONG / TERBELAH MENJADI BEBERAPA HALAMAN!
+      const pageWidth = 210; // 210mm (standar lebar portrait A4)
+      const margin = 6; // 6mm margin
+      const printWidth = pageWidth - (margin * 2); // 198mm
+      const printHeight = (canvas.height * printWidth) / canvas.width;
+      const totalPageHeight = printHeight + (margin * 2);
 
-    let heightLeft = printHeight;
-    let position = margin;
+      pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: [pageWidth, totalPageHeight],
+        compress: true
+      });
 
-    // Add first page
-    pdf.addImage(imgData, 'JPEG', margin, position, printWidth, printHeight);
-    heightLeft -= (pageHeight - (margin * 2));
+      pdf.addImage(imgData, 'JPEG', margin, margin, printWidth, printHeight, undefined, 'FAST');
+    } else if (selectedFormat === 'f4') {
+      // 2. KERTAS F4 / FOLIO INDONESIA (215 x 330 mm)
+      // Ukuran standar instansi pendidikan & olahraga di Indonesia (lebih panjang 33mm dari A4)
+      const pageWidth = 215;
+      const pageHeight = 330;
+      const margin = 6;
+      const availableWidth = pageWidth - (margin * 2);
+      const availableHeight = pageHeight - (margin * 2);
+      const rawRatio = canvas.width / canvas.height;
 
-    // If content spans beyond page 1, add subsequent pages cleanly
-    while (heightLeft > 0) {
-      position = heightLeft - printHeight + margin;
-      pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', margin, position, printWidth, printHeight);
-      heightLeft -= (pageHeight - (margin * 2));
+      let finalPrintWidth = availableWidth;
+      let finalPrintHeight = availableWidth / rawRatio;
+
+      if (finalPrintHeight > availableHeight) {
+        finalPrintHeight = availableHeight;
+        finalPrintWidth = availableHeight * rawRatio;
+      }
+
+      const offsetX = margin + (availableWidth - finalPrintWidth) / 2;
+      const offsetY = margin + (availableHeight - finalPrintHeight) / 2;
+
+      pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: [pageWidth, pageHeight],
+        compress: true
+      });
+
+      pdf.addImage(imgData, 'JPEG', offsetX, offsetY, finalPrintWidth, finalPrintHeight, undefined, 'FAST');
+    } else if (selectedFormat === 'multipage') {
+      // 3. MULTI-HALAMAN RAPI (2 LEMBAR A4 TERSTRUKTUR BERSIH)
+      // Khusus cetak printer fisik: Halaman 1 (Presensi) & Halaman 2 (Dokumentasi Foto & Link)
+      const pageWidth = 210;
+      const margin = 6;
+      const availableWidth = pageWidth - (margin * 2);
+
+      pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
+      });
+
+      const sliceHeightPx = Math.floor(canvas.height * 0.52);
+
+      // Canvas Halaman 1
+      const c1 = document.createElement('canvas');
+      c1.width = canvas.width;
+      c1.height = sliceHeightPx;
+      const ctx1 = c1.getContext('2d');
+      if (ctx1) {
+        ctx1.drawImage(canvas, 0, 0, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
+      }
+      const img1 = c1.toDataURL('image/jpeg', 0.95);
+      const h1Mm = (sliceHeightPx * availableWidth) / canvas.width;
+      pdf.addImage(img1, 'JPEG', margin, margin, availableWidth, h1Mm, undefined, 'FAST');
+
+      // Canvas Halaman 2
+      pdf.addPage('a4', 'portrait');
+      const c2 = document.createElement('canvas');
+      c2.width = canvas.width;
+      c2.height = canvas.height - sliceHeightPx;
+      const ctx2 = c2.getContext('2d');
+      if (ctx2) {
+        ctx2.drawImage(canvas, 0, sliceHeightPx, canvas.width, canvas.height - sliceHeightPx, 0, 0, canvas.width, canvas.height - sliceHeightPx);
+      }
+      const img2 = c2.toDataURL('image/jpeg', 0.95);
+      const h2Mm = ((canvas.height - sliceHeightPx) * availableWidth) / canvas.width;
+      pdf.addImage(img2, 'JPEG', margin, margin, availableWidth, h2Mm, undefined, 'FAST');
+    } else {
+      // 4. KERTAS A4 STANDAR (210 x 297 mm)
+      const pageWidth = 210;
+      const pageHeight = 297;
+      const margin = 6;
+      const availableWidth = pageWidth - (margin * 2);
+      const availableHeight = pageHeight - (margin * 2);
+      const rawRatio = canvas.width / canvas.height;
+
+      let finalPrintWidth = availableWidth;
+      let finalPrintHeight = availableWidth / rawRatio;
+
+      if (finalPrintHeight > availableHeight) {
+        finalPrintHeight = availableHeight;
+        finalPrintWidth = availableHeight * rawRatio;
+      }
+
+      const offsetX = margin + (availableWidth - finalPrintWidth) / 2;
+      const offsetY = margin + (availableHeight - finalPrintHeight) / 2;
+
+      pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
+      });
+
+      pdf.addImage(imgData, 'JPEG', offsetX, offsetY, finalPrintWidth, finalPrintHeight, undefined, 'FAST');
     }
 
     const safeDate = session.date || new Date().toISOString().split('T')[0];
     const safeTitle = (session.sessionTitle || 'Laporan_Latihan').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const filename = `Laporan_Latihan_ERAKids_${safeDate}_${safeTitle}.pdf`;
+    const formatLabel = selectedFormat === 'auto' ? '1Lembar_Pas' : selectedFormat.toUpperCase();
+    const filename = `Laporan_Latihan_ERAKids_${safeDate}_${safeTitle}_${formatLabel}.pdf`;
 
     const blob = pdf.output('blob');
     const text = buildWhatsAppSummaryText();
@@ -236,21 +371,123 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
     return { pdf, blob, filename, text };
   };
 
-  // Direct PDF generation and download
-  const handleDownloadPdf = async () => {
-    if (isGeneratingPdf || isSharingWa) return;
+  // Direct High-Resolution Image Download (JPG)
+  const handleDownloadImage = async () => {
+    if (isGeneratingPdf || isSharingWa || isSharingImage) return;
     setIsGeneratingPdf(true);
     setDownloadError(null);
     setDownloadSuccess(false);
 
     try {
-      const { pdf, filename } = await generatePdfInstance();
+      const { jpegBlob, filename } = await generateImageBlob();
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(jpegBlob);
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(link.href);
+
+      setDownloadSuccess(true);
+      setTimeout(() => setDownloadSuccess(false), 5000);
+    } catch (err: any) {
+      console.error('Gagal unduh gambar laporan:', err);
+      setDownloadError('Gagal mengunduh gambar: ' + (err?.message || ''));
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  // Direct Share High-Resolution Image (JPG) to WhatsApp
+  // Sangat disukai karena gambar laporan langsung muncul di chat WhatsApp tanpa orang tua perlu unduh file PDF!
+  const handleShareImageToWhatsApp = async () => {
+    if (isSharingImage || isGeneratingPdf) return;
+    setIsSharingImage(true);
+    setShareMessage(null);
+
+    try {
+      const { jpegBlob, pngBlob, filename } = await generateImageBlob();
+      const text = buildWhatsAppSummaryText();
+      const file = new File([jpegBlob], filename, { type: 'image/jpeg' });
+
+      // 1. Mobile & Web Share API support with File
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function' && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: `Laporan Latihan ERA Kids - ${session.sessionTitle}`,
+            text: text
+          });
+          setShareMessage({
+            type: 'success',
+            text: '✓ Gambar laporan dan ringkasan pesan berhasil dibagikan langsung ke WhatsApp!'
+          });
+          setTimeout(() => setShareMessage(null), 5000);
+          return;
+        } catch (shareErr: any) {
+          if (shareErr.name === 'AbortError') return;
+          console.warn('Navigator share error, falling back:', shareErr);
+        }
+      }
+
+      // 2. Desktop Fallback:
+      // A. Try copying image to clipboard for instant Ctrl+V
+      try {
+        if (navigator.clipboard && typeof (window as any).ClipboardItem !== 'undefined') {
+          const item = new (window as any).ClipboardItem({ 'image/png': pngBlob });
+          await navigator.clipboard.write([item]);
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      // B. Save the image file to device downloads
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(jpegBlob);
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(link.href);
+
+      // C. Copy text to clipboard so it's ready to paste
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (clipErr) {
+        console.warn('Clipboard write error:', clipErr);
+      }
+
+      // D. Open WhatsApp with pre-filled text
+      const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+      window.open(waUrl, '_blank', 'noopener,noreferrer');
+
+      setShareMessage({
+        type: 'success',
+        text: '✓ Gambar laporan (JPG HD) otomatis terunduh & WhatsApp terbuka! Anda juga dapat langsung menempelkan gambar (Ctrl+V) ke chat WhatsApp.'
+      });
+      setTimeout(() => setShareMessage(null), 8000);
+    } catch (err: any) {
+      console.error('Error sharing image to WhatsApp:', err);
+      setShareMessage({
+        type: 'error',
+        text: 'Gagal membagikan gambar laporan: ' + (err?.message || 'Terjadi kesalahan.')
+      });
+      setTimeout(() => setShareMessage(null), 5000);
+    } finally {
+      setIsSharingImage(false);
+    }
+  };
+
+  // Direct PDF generation and download
+  const handleDownloadPdf = async (overrideFormat?: 'auto' | 'f4' | 'a4' | 'multipage') => {
+    if (isGeneratingPdf || isSharingWa || isSharingImage) return;
+    setIsGeneratingPdf(true);
+    setDownloadError(null);
+    setDownloadSuccess(false);
+
+    try {
+      const { pdf, filename } = await generatePdfInstance(overrideFormat);
       pdf.save(filename);
       setDownloadSuccess(true);
       setTimeout(() => setDownloadSuccess(false), 5000);
     } catch (err: any) {
       console.error('Gagal generate PDF langsung via html2canvas:', err);
-      // Fallback: try opening browser print dialog
       setDownloadError('Gagal mengunduh file secara otomatis. Mencoba membuka dialog cetak browser...');
       setTimeout(() => {
         try {
@@ -266,7 +503,7 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
 
   // Direct Share PDF to WhatsApp (Mobile Web Share with PDF file, or Desktop auto-download + WA Web)
   const handleShareToWhatsApp = async () => {
-    if (isSharingWa || isGeneratingPdf) return;
+    if (isSharingWa || isGeneratingPdf || isSharingImage) return;
     setIsSharingWa(true);
     setShareMessage(null);
 
@@ -284,15 +521,12 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
           });
           setShareMessage({
             type: 'success',
-            text: 'Laporan PDF dan ringkasan berhasil dibagikan!'
+            text: '✓ Laporan PDF dan ringkasan pesan berhasil dibagikan!'
           });
           setTimeout(() => setShareMessage(null), 4500);
           return;
         } catch (shareErr: any) {
-          if (shareErr.name === 'AbortError') {
-            // User cancelled the share dialog
-            return;
-          }
+          if (shareErr.name === 'AbortError') return;
           console.warn('Navigator share error, falling back to download + WhatsApp:', shareErr);
         }
       }
@@ -312,9 +546,10 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
       const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
       window.open(waUrl, '_blank', 'noopener,noreferrer');
 
+      const formatNotice = paperFormat === 'auto' ? '1 Lembar Pas' : paperFormat.toUpperCase();
       setShareMessage({
         type: 'success',
-        text: 'File PDF otomatis terunduh & WhatsApp telah dibuka! Silakan lampirkan file PDF tersebut ke chat WhatsApp.'
+        text: `✓ File PDF (${formatNotice}) otomatis terunduh & WhatsApp telah dibuka! Silakan lampirkan file PDF tersebut ke chat WhatsApp.`
       });
       setTimeout(() => setShareMessage(null), 7000);
     } catch (err: any) {
@@ -327,26 +562,6 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
     } finally {
       setIsSharingWa(false);
     }
-  };
-
-  // Direct printer paper dialog
-  const handlePrint = () => {
-    window.print();
-  };
-
-  // Copy direct gallery link
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(parentGalleryUrl);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2500);
-  };
-
-  // Generate and copy WhatsApp text summary for the parent group
-  const handleCopyWhatsAppText = () => {
-    const text = buildWhatsAppSummaryText();
-    navigator.clipboard.writeText(text);
-    setCopiedWaText(true);
-    setTimeout(() => setCopiedWaText(false), 2500);
   };
 
   const records = session.records || [];
@@ -381,89 +596,24 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
               <FileText className="w-3.5 h-3.5" />
             </div>
             <div className="min-w-0">
-              <h3 className="font-bold text-xs sm:text-sm text-white truncate flex items-center gap-1.5">
-                <span>Laporan Sesi Latihan ERA Kids</span>
-                <span className="text-[9.5px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.2 rounded font-semibold hidden min-[480px]:inline">
-                  PDF & WhatsApp
-                </span>
+              <h3 className="font-bold text-sm text-white truncate">
+                Laporan Sesi Latihan
               </h3>
-              <p className="text-[10px] text-slate-400 truncate">
+              <p className="text-[11px] text-slate-400 truncate">
                 {session.sessionTitle} • {formatIndonesianDate(session.date)}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* Direct Share PDF to WhatsApp Button */}
-            <button
-              type="button"
-              id="btn-top-share-wa"
-              onClick={handleShareToWhatsApp}
-              disabled={isSharingWa || isGeneratingPdf}
-              className="px-2.5 sm:px-3 py-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-60 text-white rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 shadow-2xs"
-              title="Bagikan file PDF laporan & ringkasan langsung ke WhatsApp"
-            >
-              {isSharingWa ? (
-                <>
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  <span>Menyiapkan...</span>
-                </>
-              ) : (
-                <>
-                  <Share2 className="w-3 h-3" />
-                  <span>Share ke WA</span>
-                </>
-              )}
-            </button>
-
-            {/* Direct PDF Download Button */}
-            <button
-              type="button"
-              id="btn-download-pdf-report"
-              onClick={handleDownloadPdf}
-              disabled={isGeneratingPdf || isSharingWa}
-              className="px-2.5 sm:px-3 py-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-60 text-white rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 shadow-xs"
-              title="Unduh langsung file PDF laporan ke perangkat"
-            >
-              {isGeneratingPdf ? (
-                <>
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  <span>Mengunduh...</span>
-                </>
-              ) : (
-                <>
-                  <Download className="w-3 h-3" />
-                  <span className="hidden min-[420px]:inline">Unduh PDF</span>
-                </>
-              )}
-            </button>
-
-            {/* WhatsApp Text Copy */}
-            <button
-              type="button"
-              id="btn-copy-wa-report"
-              onClick={handleCopyWhatsAppText}
-              className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 shadow-2xs hidden min-[480px]:flex ${
-                copiedWaText
-                  ? 'bg-slate-700 text-emerald-400'
-                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-              }`}
-              title="Salin Teks Ringkasan untuk Pesan Grup WhatsApp"
-            >
-              {copiedWaText ? <Check className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />}
-              <span>{copiedWaText ? 'Tersalin' : 'Teks WA'}</span>
-            </button>
-
-            {/* Close */}
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-              title="Tutup"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+          {/* Clean Close Button */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+            title="Tutup"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Feedback Banners (Hidden on Print) */}
@@ -492,19 +642,17 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
         )}
 
         {downloadSuccess && (
-          <div className="px-4 py-2 bg-emerald-50 border-b border-emerald-200 text-emerald-800 text-xs font-semibold flex flex-wrap items-center justify-between gap-2 animate-in fade-in duration-150 print:hidden">
+          <div className="px-4 py-2 bg-emerald-50 border-b border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center justify-between gap-2 animate-in fade-in duration-150 print:hidden">
             <span className="flex items-center gap-1.5">
               <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>File PDF Laporan berhasil diunduh ke folder perangkat Anda!</span>
+              <span>File berhasil diunduh ke perangkat Anda.</span>
             </span>
             <button
               type="button"
-              onClick={handleShareToWhatsApp}
-              disabled={isSharingWa}
-              className="px-2.5 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-bold flex items-center gap-1 shadow-2xs transition-all"
+              onClick={() => setDownloadSuccess(false)}
+              className="p-0.5 text-emerald-600 hover:text-emerald-800"
             >
-              <Share2 className="w-3 h-3" />
-              <span>Langsung Share ke WA</span>
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
@@ -525,99 +673,76 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
           </div>
         )}
 
-        {/* Quick Helper Banner (Hidden on Print) */}
-        <div className="px-3 sm:px-5 py-2 bg-amber-50/70 border-b border-amber-200/60 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900 print:hidden">
-          <div className="flex items-center gap-1.5 text-[11px]">
-            <span className="font-bold">💡 Info:</span>
-            <span>
-              Klik <strong>Unduh PDF</strong> di bawah untuk menyimpan file resmi, atau salin tautan portal galeri foto anak untuk orang tua.
+        {/* TOOLBAR: FORMAT KERTAS & ZOOM VIEW (Clean & Simple) */}
+        <div className="bg-slate-50 px-4 sm:px-6 py-2 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs print:hidden">
+          {/* Format Kertas */}
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-slate-700 text-xs">
+              Ukuran Kertas:
             </span>
+            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setPaperFormat('auto')}
+                className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${
+                  paperFormat === 'auto'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+                title="1 Lembar Utuh Pas Konten (Anti-Terpotong)"
+              >
+                Auto 1 Lembar
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaperFormat('f4')}
+                className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${
+                  paperFormat === 'f4'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+                title="Kertas F4 / Folio (215 x 330 mm)"
+              >
+                F4
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaperFormat('a4')}
+                className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${
+                  paperFormat === 'a4'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+                title="Kertas A4 (210 x 297 mm)"
+              >
+                A4
+              </button>
+            </div>
           </div>
+
+          {/* Zoom view */}
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={handleCopyLink}
-              className="px-2 py-0.5 bg-white hover:bg-amber-100 text-amber-800 font-semibold rounded border border-amber-300 transition-colors flex items-center gap-1 text-[10.5px]"
-              title="Salin Tautan Akses Foto untuk Orang Tua"
-            >
-              {copiedLink ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-              <span>{copiedLink ? 'Link Tersalin!' : 'Salin Link Ortu'}</span>
-            </button>
-            <a
-              href={parentGalleryUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-2 py-0.5 bg-white hover:bg-amber-100 text-amber-800 font-semibold rounded border border-amber-300 transition-colors flex items-center gap-1 text-[10.5px]"
-              title="Uji coba buka galeri foto di portal orang tua"
-            >
-              <ExternalLink className="w-3 h-3" />
-              <span>Buka Galeri</span>
-            </a>
-          </div>
-        </div>
-
-        {/* ZOOM & RESPONSIVE VIEW CONTROL (Hidden on Print) */}
-        <div className="bg-slate-100 px-3 sm:px-5 py-1.5 border-b border-slate-200 flex items-center justify-between text-xs print:hidden">
-          <div className="flex items-center gap-1.5 text-slate-700 text-[11px]">
-            <span className="font-semibold text-slate-800">Tampilan Laporan:</span>
-            <span className="bg-slate-200 text-slate-800 px-1.5 py-0.2 rounded font-mono font-bold text-[10px]">
-              {Math.round(computedScale * 100)}%
-            </span>
-            {zoomLevel === 'fit' && (
-              <span className="text-[10px] text-indigo-700 font-medium hidden sm:inline">
-                (Otomatis Pas Lebar Layar)
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
               onClick={() => setZoomLevel('fit')}
-              className={`px-2 py-0.5 rounded text-[10.5px] font-bold transition-all ${
+              className={`px-2.5 py-1 rounded-md text-xs transition-all ${
                 zoomLevel === 'fit'
-                  ? 'bg-indigo-600 text-white shadow-2xs'
-                  : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+                  ? 'bg-slate-200 text-slate-900 font-bold'
+                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
               }`}
-              title="Muatkan pas dengan lebar layar HP (tanpa geser kanan kiri)"
             >
               Pas Layar
             </button>
             <button
               type="button"
               onClick={() => setZoomLevel(1)}
-              className={`px-2 py-0.5 rounded text-[10.5px] font-bold transition-all ${
+              className={`px-2.5 py-1 rounded-md text-xs transition-all ${
                 zoomLevel === 1
-                  ? 'bg-indigo-600 text-white shadow-2xs'
-                  : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+                  ? 'bg-slate-200 text-slate-900 font-bold'
+                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
               }`}
-              title="Ukuran Asli 100%"
             >
               100%
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const current = typeof zoomLevel === 'number' ? zoomLevel : computedScale;
-                const next = Math.min(Number((current + 0.2).toFixed(2)), 2);
-                setZoomLevel(next as any);
-              }}
-              className="p-1 rounded bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition-colors"
-              title="Perbesar (Zoom In)"
-            >
-              <ZoomIn className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const current = typeof zoomLevel === 'number' ? zoomLevel : computedScale;
-                const next = Math.max(Number((current - 0.2).toFixed(2)), 0.35);
-                setZoomLevel(next as any);
-              }}
-              className="p-1 rounded bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition-colors"
-              title="Perkecil (Zoom Out)"
-            >
-              <ZoomOut className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -943,81 +1068,62 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
           </div>
         </div>
 
-        {/* MODAL FOOTER CONTROLS - COMPACT & POSITIONED AT BOTTOM (Hidden on Print) */}
-        <div className="p-3 sm:p-4 bg-white border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs print:hidden">
-          <div className="text-slate-500 text-[10.5px] text-center sm:text-left">
-            Klik <strong>Share ke WA</strong> untuk langsung mengirim PDF ke grup orang tua, atau <strong>Unduh PDF</strong> untuk menyimpan ke perangkat.
-          </div>
+        {/* MODAL FOOTER CONTROLS - SIMPLE, CLEAN & ESSENTIAL */}
+        <div className="p-3 sm:p-4 bg-white border-t border-slate-200 flex items-center justify-between gap-3 text-xs print:hidden">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg transition-colors text-xs sm:text-sm"
+          >
+            Tutup
+          </button>
 
-          <div className="flex flex-wrap items-center gap-1.5 shrink-0 w-full sm:w-auto justify-end">
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onClose}
-              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg transition-colors text-xs"
+              id="btn-download-img"
+              onClick={handleDownloadImage}
+              disabled={isGeneratingPdf || isSharingWa || isSharingImage}
+              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 active:scale-95 disabled:opacity-60 text-slate-700 font-bold rounded-lg transition-all text-xs sm:text-sm flex items-center gap-1.5"
+              title="Unduh file gambar (JPG HD)"
             >
-              Tutup
+              <ImageIcon className="w-4 h-4 text-slate-600" />
+              <span>Unduh Gambar</span>
             </button>
 
             <button
               type="button"
-              onClick={handlePrint}
-              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg transition-colors text-xs flex items-center gap-1"
-              title="Cetak langsung menggunakan dialog printer"
-            >
-              <Printer className="w-3.5 h-3.5 text-slate-500" />
-              <span className="hidden min-[420px]:inline">Cetak</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleCopyWhatsAppText}
-              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors text-xs flex items-center gap-1 hidden min-[480px]:flex"
-              title="Salin teks ringkasan untuk pesan WhatsApp"
-            >
-              <MessageSquare className="w-3.5 h-3.5 text-slate-500" />
-              <span>{copiedWaText ? 'Tersalin' : 'Salin Teks'}</span>
-            </button>
-
-            {/* Main Share PDF to WhatsApp Button */}
-            <button
-              type="button"
-              id="btn-bottom-share-wa"
-              onClick={handleShareToWhatsApp}
-              disabled={isSharingWa || isGeneratingPdf}
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-60 text-white font-bold rounded-lg transition-all text-xs flex items-center gap-1.5 shadow-2xs"
-              title="Bagikan file PDF laporan & ringkasan langsung ke WhatsApp"
-            >
-              {isSharingWa ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Menyiapkan WA...</span>
-                </>
-              ) : (
-                <>
-                  <Share2 className="w-3.5 h-3.5" />
-                  <span>Share ke WA</span>
-                </>
-              )}
-            </button>
-
-            {/* Main Download PDF Button */}
-            <button
-              type="button"
-              id="btn-bottom-download-pdf"
-              onClick={handleDownloadPdf}
-              disabled={isGeneratingPdf || isSharingWa}
-              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-60 text-white font-bold rounded-lg transition-all text-xs flex items-center gap-1.5 shadow-xs"
-              title="Unduh langsung file laporan dalam format PDF"
+              id="btn-download-pdf"
+              onClick={() => handleDownloadPdf()}
+              disabled={isGeneratingPdf || isSharingWa || isSharingImage}
+              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 active:scale-95 disabled:opacity-60 text-slate-700 font-bold rounded-lg transition-all text-xs sm:text-sm flex items-center gap-1.5"
+              title={`Unduh file PDF (${paperFormat === 'auto' ? '1 Lembar Pas' : paperFormat.toUpperCase()})`}
             >
               {isGeneratingPdf ? (
+                <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+              ) : (
+                <Download className="w-4 h-4 text-indigo-600" />
+              )}
+              <span>Unduh PDF</span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-share-wa"
+              onClick={handleShareImageToWhatsApp}
+              disabled={isSharingImage || isGeneratingPdf || isSharingWa}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-60 text-white font-bold rounded-lg transition-all text-xs sm:text-sm flex items-center gap-1.5 shadow-sm"
+              title="Kirim laporan ke WhatsApp"
+            >
+              {isSharingImage ? (
                 <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Menyiapkan PDF...</span>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Mengirim...</span>
                 </>
               ) : (
                 <>
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Unduh PDF</span>
+                  <Share2 className="w-4 h-4" />
+                  <span>Share ke WA</span>
                 </>
               )}
             </button>
