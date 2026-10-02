@@ -141,7 +141,80 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
     }
   };
 
-  // Compress photo on client side via canvas (Max 850px, quality 0.65 -> ~35-50KB)
+  // Fungsi untuk memastikan ukuran string base64 tidak melampaui batas 1.048.487 bytes properti Firestore
+  const ensureSafeMediaSize = (media: MediaDocumentation): Promise<MediaDocumentation> => {
+    if (media.type !== 'photo' || !media.url || media.url.length <= 920000 || typeof window === 'undefined') {
+      return Promise.resolve(media);
+    }
+
+    return new Promise((resolve) => {
+      try {
+        const img = new Image();
+        img.src = media.url;
+        img.onload = () => {
+          try {
+            const MAX_DIM = 1350;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height && width > MAX_DIM) {
+              height = Math.round((height * MAX_DIM) / width);
+              width = MAX_DIM;
+            } else if (height > MAX_DIM) {
+              width = Math.round((width * MAX_DIM) / height);
+              height = MAX_DIM;
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              resolve(media);
+              return;
+            }
+
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, 0, 0, width, height);
+
+            let quality = 0.80;
+            let safeUrl = canvas.toDataURL('image/jpeg', quality);
+
+            while (safeUrl.length > 920000 && quality > 0.45) {
+              quality -= 0.08;
+              safeUrl = canvas.toDataURL('image/jpeg', quality);
+            }
+
+            if (safeUrl.length > 920000) {
+              const scale = 0.8;
+              canvas.width = Math.round(width * scale);
+              canvas.height = Math.round(height * scale);
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              safeUrl = canvas.toDataURL('image/jpeg', 0.75);
+            }
+
+            const byteLength = Math.round((safeUrl.length * 3) / 4);
+            const sizeKb = Math.round(byteLength / 1024);
+
+            resolve({
+              ...media,
+              url: safeUrl,
+              sizeFormatted: `${sizeKb} KB (HD)`,
+              sizeBytes: byteLength
+            });
+          } catch {
+            resolve(media);
+          }
+        };
+        img.onerror = () => resolve(media);
+      } catch {
+        resolve(media);
+      }
+    });
+  };
+
+  // Compress photo on client side via canvas (Resolusi tajam HD 1350px, kualitas 0.80 dengan safeguard mutlak batas 1MB Firestore)
   const compressImage = (file: File): Promise<MediaDocumentation> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -150,8 +223,8 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
         const img = new Image();
         img.src = event.target?.result as string;
         img.onload = () => {
-          // Resolusi Full HD+ (1600px) agar jernih, tajam, dan tidak pecah di layar smartphone & monitor
-          const MAX_DIM = 1600;
+          // Resolusi HD Tajam (1350px) agar jernih & tajam di layar smartphone retina, namun tetap aman di bawah batas 1MB properti Firestore
+          const MAX_DIM = 1350;
           let width = img.width;
           let height = img.height;
 
@@ -185,8 +258,23 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
           ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(img, 0, 0, width, height);
 
-          // Kualitas tinggi 0.85 (85%) untuk foto jernih, tajam, detail wajah & bola jelas
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          // Kualitas tinggi 0.80 dengan auto-step down untuk menjamin panjang base64 < 920.000 bytes (batas Firestore 1.048.487 bytes)
+          let quality = 0.80;
+          let compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+
+          while (compressedDataUrl.length > 920000 && quality > 0.45) {
+            quality -= 0.08;
+            compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+          }
+
+          if (compressedDataUrl.length > 920000) {
+            const scale = 0.8;
+            canvas.width = Math.round(width * scale);
+            canvas.height = Math.round(height * scale);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            compressedDataUrl = canvas.toDataURL('image/jpeg', 0.75);
+          }
+
           const byteLength = Math.round((compressedDataUrl.length * 3) / 4);
           const sizeKb = Math.round(byteLength / 1024);
 
@@ -495,6 +583,17 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
 
     setIsSavingMedia(true);
 
+    // Auto-optimasi setiap foto di sessionMedia agar DIJAMIN tidak melebihi 920.000 bytes batas properti Firestore
+    let safeMediaList: MediaDocumentation[] = sessionMedia;
+    try {
+      safeMediaList = await Promise.all(
+        sessionMedia.map(m => ensureSafeMediaSize(m))
+      );
+      setSessionMedia(safeMediaList);
+    } catch (e) {
+      console.warn('Info optimasi ukuran media:', e);
+    }
+
     const records: StudentAttendanceRecord[] = eligibleStudents.map((student, idx) => {
       const entry = attendanceMap[student.id] || { status: 'Hadir', notes: '' };
       return {
@@ -523,7 +622,7 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
       notes: sessionNotes || ''
     };
 
-    const res = await saveSessionMediaOnlyToFirestore(targetSessionId, sessionMedia, sessionMeta);
+    const res = await saveSessionMediaOnlyToFirestore(targetSessionId, safeMediaList, sessionMeta);
     setIsSavingMedia(false);
 
     if (res.success) {

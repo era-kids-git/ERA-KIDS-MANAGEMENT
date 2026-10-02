@@ -610,14 +610,47 @@ export async function saveSessionMediaOnlyToFirestore(
 
     // 3. Simpan atau perbarui foto & video aktif ke training_media
     for (const m of validMediaList) {
+      let safeUrl = m.url;
+      // Safeguard mutlak Firestore: batasan panjang properti string maksimal 1.048.487 bytes
+      if (safeUrl.length > 950000 && typeof window !== 'undefined' && safeUrl.startsWith('data:image/')) {
+        try {
+          safeUrl = await new Promise<string>((resolve) => {
+            const img = new Image();
+            img.src = safeUrl;
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const scale = 0.85;
+              canvas.width = Math.round(img.width * scale);
+              canvas.height = Math.round(img.height * scale);
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                let q = 0.78;
+                let resUrl = canvas.toDataURL('image/jpeg', q);
+                while (resUrl.length > 920000 && q > 0.45) {
+                  q -= 0.08;
+                  resUrl = canvas.toDataURL('image/jpeg', q);
+                }
+                resolve(resUrl);
+                return;
+              }
+              resolve(safeUrl);
+            };
+            img.onerror = () => resolve(safeUrl);
+          });
+        } catch {
+          // fallback
+        }
+      }
+
       const mediaItemDoc = {
         id: m.id,
         sessionId: sessionId,
         type: m.type,
-        url: m.url, // Base64 Full HD
+        url: safeUrl,
         name: m.name,
         sizeFormatted: m.sizeFormatted || 'HD',
-        sizeBytes: m.sizeBytes || 0,
+        sizeBytes: Math.round((safeUrl.length * 3) / 4),
         caption: m.caption || '',
         uploadedAt: m.uploadedAt || nowIso
       };
