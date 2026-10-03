@@ -853,6 +853,36 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
   // Open PDF Report preview modal
   const handleOpenReportModal = (session?: TrainingSession) => {
     if (session) {
+      // Cek apakah media HD sudah ada di historyMediaMap
+      const cachedMedia = historyMediaMap[session.id];
+      if (cachedMedia && cachedMedia.length > 0) {
+        setReportModalSession({
+          ...session,
+          documentationMedia: cachedMedia,
+          photos: cachedMedia.filter(m => m.type === 'photo').map(m => m.url)
+        });
+        return;
+      }
+
+      // Ambil foto dari training_media secara asinkron untuk memastikan pratinjau modal memiliki foto HD
+      getSessionMediaFromFirestore(session.id)
+        .then((mediaList) => {
+          if (mediaList && mediaList.length > 0) {
+            setHistoryMediaMap(prev => ({ ...prev, [session.id]: mediaList }));
+            setReportModalSession(prev => {
+              if (prev && prev.id === session.id) {
+                return {
+                  ...prev,
+                  documentationMedia: mediaList,
+                  photos: mediaList.filter(m => m.type === 'photo').map(m => m.url)
+                };
+              }
+              return prev;
+            });
+          }
+        })
+        .catch(() => {});
+
       setReportModalSession(session);
       return;
     }
@@ -881,6 +911,10 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
       tidakHadir: targetRecords.filter(r => r.status !== 'Hadir' && r.status !== 'Izin').length,
     };
 
+    const effectiveMedia = (sessionMedia && sessionMedia.length > 0)
+      ? sessionMedia
+      : (editingSessionId && historyMediaMap[editingSessionId] ? historyMediaMap[editingSessionId] : []);
+
     const virtualSession: TrainingSession = {
       id: editingSessionId || `session_${sessionDate.replace(/-/g, '')}`,
       date: sessionDate,
@@ -892,8 +926,8 @@ export const CoachAttendancePortal: React.FC<CoachAttendancePortalProps> = ({
       records: targetRecords,
       summary: currentSummary,
       notes: sessionNotes,
-      photos: sessionMedia.filter(m => m.type === 'photo').map(m => m.url),
-      documentationMedia: sessionMedia,
+      photos: effectiveMedia.filter(m => m.type === 'photo').map(m => m.url),
+      documentationMedia: effectiveMedia,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };

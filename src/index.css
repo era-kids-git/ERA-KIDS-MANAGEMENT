@@ -66,29 +66,60 @@ html, body {
     print-color-adjust: exact !important;
   }
   
-  body {
+  html, body {
     background: white !important;
     color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
-  /* When printing the training report, show only the document cleanly */
-  body:has(#printable-training-report) #root > *:not(#printable-modal-overlay) {
-    display: none !important;
+  /* When printing the training report, isolate #printable-training-report so no background page or blank pages exist */
+  body:has(#printable-training-report) * {
+    visibility: hidden !important;
+  }
+
+  body:has(#printable-training-report) #printable-training-report,
+  body:has(#printable-training-report) #printable-training-report * {
+    visibility: visible !important;
+  }
+
+  body:has(#printable-training-report) #printable-training-report {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    transform: none !important;
+    display: block !important;
+  }
+
+  body:has(#printable-training-report) #printable-modal-overlay {
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
   }
 
   /* When printing student card */
-  body:has(#printable-student-card) #root > *:not(#printable-modal-overlay) {
-    display: none !important;
+  body:has(#printable-student-card) * {
+    visibility: hidden !important;
   }
 
-  #printable-training-report {
-    transform: none !important;
+  body:has(#printable-student-card) #printable-student-card,
+  body:has(#printable-student-card) #printable-student-card * {
+    visibility: visible !important;
+  }
+
+  body:has(#printable-student-card) #printable-student-card {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
     width: 100% !important;
-    max-width: 100% !important;
-    position: static !important;
-  }
-
-  #printable-student-card {
     display: flex !important;
     flex-direction: row !important;
     flex-wrap: wrap !important;

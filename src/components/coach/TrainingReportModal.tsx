@@ -19,7 +19,8 @@ import {
   Share2,
   Image as ImageIcon
 } from 'lucide-react';
-import { TrainingSession } from '../../types.ts';
+import { TrainingSession, MediaDocumentation } from '../../types.ts';
+import { getSessionMediaFromFirestore } from '../../lib/firestoreService.ts';
 import { EraKidsLogo } from '../common/EraKidsLogo.tsx';
 
 interface TrainingReportModalProps {
@@ -40,6 +41,10 @@ export const TrainingReportModal: React.FC<TrainingReportModalProps> = ({
   const [downloadSuccess, setDownloadSuccess] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [shareMessage, setShareMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Media dokumentasi foto yang dimuat (mendukung auto-fetch dari training_media Firestore jika sesi riwayat)
+  const [loadedMedia, setLoadedMedia] = useState<MediaDocumentation[]>([]);
+  const [isLoadingMedia, setIsLoadingMedia] = useState<boolean>(false);
 
   // Format Kertas Laporan PDF:
   // 'auto': 1 Lembar Pas Utuh Continuous (Tinggi otomatis sesuai konten, TIDAK PERNAH terpisah/terpotong di WA/HP)
@@ -114,6 +119,58 @@ export const TrainingReportModal: React.FC<TrainingReportModalProps> = ({
     }
   }, [isOpen, session, parentGalleryUrl]);
 
+  // Muat foto HD secara otomatis jika dokumen sesi memiliki foto di subcollection/collection terpisah 'training_media'
+  useEffect(() => {
+    if (!isOpen || !session) {
+      setLoadedMedia([]);
+      return;
+    }
+
+    const docMedia = session.documentationMedia || [];
+    const validMedia = docMedia.filter(m => m.url && m.url.trim().length > 10);
+    const validPhotos = (session.photos || []).filter(p => p && p.trim().length > 10);
+
+    // Jika sudah memiliki URL foto lengkap di objek sesi, langsung gunakan
+    if (validMedia.length > 0) {
+      setLoadedMedia(docMedia);
+      return;
+    }
+
+    if (validPhotos.length > 0) {
+      setLoadedMedia(validPhotos.map((p, idx) => ({
+        id: `photo_${idx}`,
+        type: 'photo' as const,
+        url: p,
+        name: `Foto Dokumentasi ${idx + 1}`,
+        sizeFormatted: 'Standar',
+        uploadedAt: session.createdAt
+      })));
+      return;
+    }
+
+    // Jika objek sesi di training_sessions hanya menyimpan metadata (url ''), ambil foto asli dari training_media
+    if (session.id) {
+      setIsLoadingMedia(true);
+      getSessionMediaFromFirestore(session.id)
+        .then((items) => {
+          if (items && items.length > 0) {
+            setLoadedMedia(items);
+          } else {
+            setLoadedMedia(docMedia);
+          }
+        })
+        .catch((err) => {
+          console.warn('[TrainingReportModal] Info memuat foto sesi:', err);
+          setLoadedMedia(docMedia);
+        })
+        .finally(() => {
+          setIsLoadingMedia(false);
+        });
+    } else {
+      setLoadedMedia(docMedia);
+    }
+  }, [isOpen, session]);
+
   if (!isOpen || !session) return null;
 
   // Format date nicely in Indonesian
@@ -172,29 +229,85 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
 *Admin & Manajemen ERA Kids*`;
   };
 
-  // Helper to generate full-resolution Image Blob (JPEG & PNG)
-  const generateImageBlob = async (): Promise<{ jpegBlob: Blob; pngBlob: Blob; dataUrl: string; filename: string }> => {
+  // Helper to safely render off-screen clone with html2canvas (zero transform/scroll glitches, zero taint)
+  const renderReportToCanvas = async (): Promise<HTMLCanvasElement> => {
     const element = reportRef.current || document.getElementById('printable-training-report');
     if (!element) {
       throw new Error('Dokumen laporan tidak ditemukan.');
     }
 
-    const prevTransform = element.style.transform;
-    const prevTransformOrigin = element.style.transformOrigin;
-    element.style.transform = 'none';
-    element.style.transformOrigin = 'initial';
+    // Create an isolated off-screen clone to prevent viewport, zoom/scale, and scroll artifacts
+    const clone = element.cloneNode(true) as HTMLElement;
+    clone.id = 'cloned-report-capture';
+    clone.style.position = 'fixed';
+    clone.style.left = '-9999px';
+    clone.style.top = '0';
+    clone.style.width = `${PAPER_WIDTH}px`;
+    clone.style.maxWidth = `${PAPER_WIDTH}px`;
+    clone.style.transform = 'none';
+    clone.style.transformOrigin = 'initial';
+    clone.style.zIndex = '-9999';
+    clone.style.background = '#ffffff';
+    clone.style.boxShadow = 'none';
+    clone.style.borderRadius = '0';
+    clone.style.margin = '0';
 
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      useCORS: true,
-      allowTaint: true,
-      logging: false,
-      backgroundColor: '#ffffff'
-    });
+    document.body.appendChild(clone);
 
-    element.style.transform = prevTransform;
-    element.style.transformOrigin = prevTransformOrigin;
+    try {
+      // Ensure all images in clone are fully loaded and hardware-decoded before capturing
+      const imgs = Array.from(clone.querySelectorAll('img'));
+      await Promise.all(
+        imgs.map(async (img) => {
+          img.crossOrigin = 'anonymous';
+          try {
+            if (img.complete && img.naturalWidth > 0) {
+              if (img.decode) await img.decode().catch(() => {});
+              return;
+            }
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, 3000);
+              img.onload = async () => {
+                clearTimeout(timer);
+                if (img.decode) await img.decode().catch(() => {});
+                resolve();
+              };
+              img.onerror = () => {
+                clearTimeout(timer);
+                resolve();
+              };
+            });
+          } catch {
+            // continue
+          }
+        })
+      );
 
+      // Short buffer to ensure layout settles
+      await new Promise(r => setTimeout(r, 60));
+
+      const canvas = await html2canvas(clone, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: false,
+        logging: false,
+        backgroundColor: '#ffffff',
+        imageTimeout: 15000,
+        scrollX: 0,
+        scrollY: 0
+      });
+
+      return canvas;
+    } finally {
+      if (document.body.contains(clone)) {
+        document.body.removeChild(clone);
+      }
+    }
+  };
+
+  // Helper to generate full-resolution Image Blob (JPEG & PNG)
+  const generateImageBlob = async (): Promise<{ jpegBlob: Blob; pngBlob: Blob; dataUrl: string; filename: string }> => {
+    const canvas = await renderReportToCanvas();
     const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
 
     const jpegBlob = await new Promise<Blob>((resolve, reject) => {
@@ -215,30 +328,7 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
   // Generate jsPDF instance and PDF Blob with high resolution and customizable paper format
   const generatePdfInstance = async (formatOverride?: 'auto' | 'f4' | 'a4' | 'multipage'): Promise<{ pdf: jsPDF; blob: Blob; filename: string; text: string }> => {
     const selectedFormat = formatOverride || paperFormat;
-    const element = reportRef.current || document.getElementById('printable-training-report');
-    if (!element) {
-      throw new Error('Dokumen laporan tidak ditemukan.');
-    }
-
-    // Temporarily remove transform to guarantee 100% full-resolution capture
-    const prevTransform = element.style.transform;
-    const prevTransformOrigin = element.style.transformOrigin;
-    element.style.transform = 'none';
-    element.style.transformOrigin = 'initial';
-
-    // Capture element using html2canvas with high scale for crisp text & crisp logos
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      useCORS: true,
-      allowTaint: true,
-      logging: false,
-      backgroundColor: '#ffffff'
-    });
-
-    // Restore transform
-    element.style.transform = prevTransform;
-    element.style.transformOrigin = prevTransformOrigin;
-
+    const canvas = await renderReportToCanvas();
     const imgData = canvas.toDataURL('image/jpeg', 0.95);
 
     let pdf: jsPDF;
@@ -488,14 +578,7 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
       setTimeout(() => setDownloadSuccess(false), 5000);
     } catch (err: any) {
       console.error('Gagal generate PDF langsung via html2canvas:', err);
-      setDownloadError('Gagal mengunduh file secara otomatis. Mencoba membuka dialog cetak browser...');
-      setTimeout(() => {
-        try {
-          window.print();
-        } catch (e) {
-          console.error('Fallback print error:', e);
-        }
-      }, 500);
+      setDownloadError('Gagal membuat file PDF: ' + (err?.message || 'Terjadi kesalahan saat memproses laporan. Silakan coba lagi.'));
     } finally {
       setIsGeneratingPdf(false);
     }
@@ -565,17 +648,22 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
   };
 
   const records = session.records || [];
-  const mediaList = session.documentationMedia || (session.photos || []).map((p, idx) => ({
-    id: `photo_${idx}`,
-    type: 'photo' as const,
-    url: p,
-    name: `Foto Dokumentasi ${idx + 1}`,
-    sizeFormatted: 'Standar',
-    uploadedAt: session.createdAt
-  }));
+  const mediaList = loadedMedia.length > 0
+    ? loadedMedia
+    : (session.documentationMedia && session.documentationMedia.length > 0
+        ? session.documentationMedia
+        : (session.photos || []).map((p, idx) => ({
+            id: `photo_${idx}`,
+            type: 'photo' as const,
+            url: p,
+            name: `Foto Dokumentasi ${idx + 1}`,
+            sizeFormatted: 'Standar',
+            uploadedAt: session.createdAt
+          })));
 
-  // Only take the first row of media (up to 4 items in a 4-column row), rest is excluded from PDF
-  const firstRowMedia = mediaList.slice(0, 4);
+  // Ambil hanya media dengan URL valid (agar tidak menghasilkan tampilan layar hitam jika data belum termuat)
+  const validPhotoList = mediaList.filter(m => m.url && m.url.trim().length > 0);
+  const firstRowMedia = validPhotoList.slice(0, 4);
 
   const summary = {
     total: records.length,
@@ -961,12 +1049,17 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
             </div>
 
             {/* 5. DOKUMENTASI FOTO & VIDEO (HANYA 1 BARIS AWAL, SISANYA DIHILANGKAN DARI PDF) */}
-            {firstRowMedia.length > 0 && (
+            {isLoadingMedia ? (
+              <div className="mb-4 p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center gap-2 text-xs text-slate-500">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                <span>Memuat cuplikan dokumentasi foto latihan...</span>
+              </div>
+            ) : firstRowMedia.length > 0 ? (
               <div className="mb-4 print-page-break-inside-avoid">
                 <div className="flex items-center justify-between mb-1.5">
                   <h4 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
                     <Camera className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span>Dokumentasi Foto Latihan ({mediaList.length} Total File)</span>
+                    <span>Dokumentasi Foto Latihan ({validPhotoList.length} Total File)</span>
                   </h4>
                   <span className="text-[9.5px] text-slate-500 font-medium">
                     Lampiran 1 baris cuplikan ({firstRowMedia.length} item)
@@ -982,17 +1075,19 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
                         key={media.id || i}
                         className="rounded-lg overflow-hidden border border-slate-200 bg-slate-50 relative"
                       >
-                        <div className="aspect-video bg-slate-950 relative overflow-hidden flex items-center justify-center">
+                        <div className="aspect-video bg-slate-100 relative overflow-hidden flex items-center justify-center">
                           {isVideo ? (
-                            <div className="flex flex-col items-center justify-center text-white p-1 text-center">
-                              <Video className="w-4 h-4 text-amber-400 mb-0.5" />
-                              <span className="text-[7.5px] font-bold uppercase tracking-wider text-amber-200">VIDEO</span>
+                            <div className="flex flex-col items-center justify-center text-slate-700 p-1 text-center bg-slate-100 w-full h-full">
+                              <Video className="w-4 h-4 text-amber-500 mb-0.5" />
+                              <span className="text-[7.5px] font-bold uppercase tracking-wider text-slate-600">VIDEO</span>
                             </div>
                           ) : (
                             <img 
                               src={media.url} 
                               alt={media.name || `Dokumentasi ${i + 1}`}
                               className="w-full h-full object-cover"
+                              crossOrigin="anonymous"
+                              loading="eager"
                             />
                           )}
                         </div>
@@ -1009,13 +1104,13 @@ Terima kasih banyak atas dukungan Ayah & Bunda untuk kemajuan ananda! Salam olah
                   })}
                 </div>
 
-                {mediaList.length > firstRowMedia.length && (
+                {validPhotoList.length > firstRowMedia.length && (
                   <p className="text-[9px] text-slate-400 italic mt-1 text-right">
-                    *+{mediaList.length - firstRowMedia.length} foto & video lainnya tidak dimuat di PDF (dapat diunduh lengkap via portal orang tua di bawah).
+                    *+{validPhotoList.length - firstRowMedia.length} foto & video lainnya tidak dimuat di PDF (dapat diunduh lengkap via portal orang tua di bawah).
                   </p>
                 )}
               </div>
-            )}
+            ) : null}
 
 
 
